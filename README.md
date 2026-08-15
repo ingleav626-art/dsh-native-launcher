@@ -25,14 +25,25 @@
 - 设置页增强 section（查看配置 / 重建快捷方式）
 - 官方 DSH 图标全入口统一
 
+**安装为应用后自动获得**（浏览器原生能力，无需本插件代码）：任务栏独立图标、无地址栏独立窗口、开始菜单条目、可固定任务栏、应用级关闭——与桌面 App 一致的窗口体验。
+
 ### 🚧 下一步（规划中）
 
 - **v0.2 关闭语义**：关闭 WebUI 窗口 = 优雅退出后台服务（客户端断开检测 + 任务检查 + `ctx.fiber.dispose()` 持久化 flush），有任务在跑时不退出
-- **应用内退出按钮**：页面内一键退出（检查任务 → 确认 → 优雅关闭），把"关闭应用"从浏览器 X 挪到应用内
+- **任务检测 + 双通道提醒**：任务结束提醒已通过配套插件 [dsh-notification](https://github.com/omdsh-dev/dsh-notification) 实现（页面内）；规划补齐"页面关闭后"通道——host 检测任务结束 → **托盘气泡**（dsh-notification 只覆盖页面打开场景）
+- **侧边栏数据面板**：在 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 中提供"启动器状态"面板（服务状态 / 托盘状态 / PWA 安装状态 / 快捷方式状态 + 快捷操作）
+- **功能可自定义化**：设置页升级为完整配置 UI（托盘开关 / 自动打开 / 打开方式 / 端口等全部可调、可持久化）
+- **应用内退出按钮**：页面内一键退出（检查任务 → 确认 → 优雅关闭）
 - **多浏览器适配**：Chrome / Firefox 的 PWA 安装引导差异化处理
-- **可配置性扩展**：更多配置项（自定义托盘菜单、开机自启等）
 
 完整设计验证见文末 [设计验证：桌面端体验（Roadmap）](#设计验证桌面端体验roadmap)。
+
+## 配套推荐
+
+| 插件 | 作用 | 安装 |
+| --- | --- | --- |
+| [dsh-notification](https://github.com/omdsh-dev/dsh-notification) | 回合完成桌面通知（结果分控 + 关键字规则） | `dsh plugin --profile web add https://github.com/omdsh-dev/dsh-notification/archive/refs/heads/main.tar.gz` |
+| [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 侧边栏工作台（本插件状态面板将挂载其上） | `npm i -g dsh-better-sidebar` + `dsh plugin --profile web add dsh-better-sidebar` |
 
 ## 特性
 
