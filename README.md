@@ -1,4 +1,4 @@
-# better-dsh-webui-launcher
+# dsh-native-launcher
 
 > 以"零额外安装"为设计原则：仅凭一个官方插件与 Windows 原生机制，让 DeepSeek Harness Web UI 获得桌面 App 式的一键启动体验。
 
@@ -49,7 +49,7 @@
 ## 安装
 
 ```bash
-git clone https://github.com/<your-name>/better-dsh-webui-launcher
+git clone https://github.com/<your-name>/dsh-native-launcher
 dsh plugin --profile web add <path-to-repo>
 # 重启 dsh web 后生效
 ```
@@ -65,7 +65,7 @@ dsh plugin --profile web add <path-to-repo>
 `cordis.patch.yml`（或 profile 的 patch 层覆盖）：
 
 ```yaml
-- id: better-launcher
+- id: native-launcher
   config:
     # 快捷方式双击后执行的启动命令（cmd 中运行，依赖 PATH 里的 dsh）
     launchCommand: dsh --profile web
@@ -127,7 +127,7 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 
 | 方案 | 形态 | 亮点 | 短板 |
 | --- | --- | --- | --- |
-| **better-dsh-webui-launcher（本插件）** | 标准 dsh 插件 + Windows 自带机制 | 轻量（零重型依赖）、托盘、已装应用优先打开、安装引导、设置页、端口直连、静默启动、官方图标 | 仅 Windows |
+| **dsh-native-launcher（本插件）** | 标准 dsh 插件 + Windows 自带机制 | 轻量（零重型依赖）、托盘、已装应用优先打开、安装引导、设置页、端口直连、静默启动、官方图标 | 仅 Windows |
 | [jenokagong/dsh-webui-launcher](https://github.com/jenokagong-dotcom/dsh-webui-launcher) | 纯 bat | 控制台可最小化恢复、快速启动（~2s） | 关窗=停服务、无托盘、无端口直连 |
 | [LvienOeria 插件](https://github.com/LvienOeria/ds-harness-webui-launcher) | dsh 插件 | 幂等 state hash、配置 .bak 备份、坏配置大声报错 | **不支持 Windows**，无托盘/快捷方式 |
 | [zhanweipan 启动器](https://github.com/zhanweipan/ds-harness-launcher) | Electron | 一键部署、版本管理、多实例、日志面板 | 重型桌面端，与轻量定位相悖 |
@@ -139,7 +139,7 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 ## 卸载
 
 ```bash
-dsh plugin --profile web remove better-dsh-webui-launcher   # 1. 移除插件（profile 依赖 + bundle）
+dsh plugin --profile web remove dsh-native-launcher   # 1. 移除插件（profile 依赖 + bundle）
 ```
 
 然后手动清理生成物（插件只负责生成，不负责回收）：

@@ -1,8 +1,8 @@
-# better-dsh-webui-launcher bundle patch: mounts the plugin into a dsh profile.
+# dsh-native-launcher bundle patch: mounts the plugin into a dsh profile.
 # Install: `dsh plugin --profile web add <path-to-this-directory>`
 - insert:
-    - id: better-launcher
-      name: better-dsh-webui-launcher
+    - id: native-launcher
+      name: dsh-native-launcher
       config:
         # 桌面快捷方式双击后执行的启动命令（在 cmd 中运行，依赖 PATH 里的 dsh）
         launchCommand: dsh --profile web

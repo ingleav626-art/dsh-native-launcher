@@ -1,5 +1,5 @@
 {
-  "name": "better-dsh-webui-launcher",
+  "name": "dsh-native-launcher",
   "version": "0.1.0",
   "description": "dsh plugin (Windows): desktop shortcut that launches dsh web silently (hidden console) and auto-opens the browser; port-aware reconnect; settings UI section.",
   "type": "module",
