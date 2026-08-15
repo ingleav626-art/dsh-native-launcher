@@ -16,8 +16,7 @@
         port: 3080
         # 系统托盘（PowerShell NotifyIcon，零依赖）：启动时拉起，含"打开 WebUI / 停止 DSH / 退出"
         tray: true
-        # 任务通知（agent/status running→idle 检测）：托盘气泡 + 页面内 Notification
-        notify: true
         # 打开方式：app=桌面 App 模式（默认，Chromium 系 --app 独立应用窗口：任务栏独立条目、无地址栏、图标取页面 favicon）
         #          new-window=默认浏览器独立窗口 / default=浏览器默认行为
         openMode: app
+

@@ -22,8 +22,8 @@
 - **已安装 PWA 应用优先打开**：装过应用的直接打开应用窗口，未安装自动回退浏览器
 - 系统托盘（打开 / 停止 / 退出）
 - 安装引导模态框（白底，一键唤出浏览器原生安装流程）
-- 设置页增强 section（查看配置 / 重建快捷方式 / 通知配置）
-- **任务检测 + 双通道通知**（内置）：监听 `session/event` 的 `turn/end`（权威结束原因）区分 **正常完成 / 出错 / 被中止 / 被阻塞（等待批准/回答）/ 达 Token 上限**——页面内（Notification API，主动索权 + **结果类型开关**）+ 页面外（**托盘气泡**，页面关闭也能提醒）；设置页逐类型开关（localStorage 持久化）
+- 设置页增强 section（查看配置 / 重建快捷方式）+ **独立"通知"设置 section**
+- **任务完成通知**（完整集成 [dsh-notification](https://github.com/omdsh-dev/dsh-notification)，MIT）：会话投影驱动，区分 **正常完成 / 出错 / 被中止 / 被阻塞 / 达 Token 上限**，逐类型开关 + 关键词规则（包含/排除 + 正则）+ 高级选项（手动关闭 / 仅在任务不在眼前时通知）；投影 turn 推进检测天然避免历史重放轰炸
 - 官方 DSH 图标全入口统一
 
 **安装为应用后自动获得**（浏览器原生能力，无需本插件代码）：任务栏独立图标、无地址栏独立窗口、开始菜单条目、可固定任务栏、应用级关闭——与桌面 App 一致的窗口体验。
@@ -194,7 +194,7 @@ node tools/make-ico.mjs <input.png> <output.ico>   # PNG → ICO（≤256px，�
 
 ## 致谢
 
-- **任务通知功能合并自**：[dsh-notification](https://github.com/omdsh-dev/dsh-notification)（MIT License, Copyright (c) 2026 DeepSeek）——其"回合完成投影 + 客户端决策（结果分类 / 关键字规则）"的设计已集成升级进本插件的任务检测/通知（host `turn/end` 检测 + per-outcome 开关 + 双通道提醒），并在此基础上增加了**页面外托盘气泡**通道
+- **任务通知功能完整集成自**：[dsh-notification](https://github.com/omdsh-dev/dsh-notification)（MIT License, Copyright (c) 2026 DeepSeek）——host 投影（`lib/notification-host.js`）与 client 完成检测/设置（`lib/notification-client.js`）为其**原样构建产物**，通过本插件包内模块挂载（含 `Settings > 通知` 设置页）
 - 图标使用官方 DeepSeek Harness 品牌图标（源自 dsh web 的 `favicon.svg`），仅用于非商业开源插件场景
 
 ## 许可证
