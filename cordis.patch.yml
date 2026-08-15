@@ -1,0 +1,21 @@
+# better-dsh-webui-launcher bundle patch: mounts the plugin into a dsh profile.
+# Install: `dsh plugin --profile web add <path-to-this-directory>`
+- insert:
+    - id: better-launcher
+      name: better-dsh-webui-launcher
+      config:
+        # 桌面快捷方式双击后执行的启动命令（在 cmd 中运行，依赖 PATH 里的 dsh）
+        launchCommand: dsh --profile web
+        # 启动器是否自动打开浏览器（仅当通过快捷方式启动、且设置了 DSH_LAUNCHER=1 时）
+        autoOpen: true
+        # 快捷方式名称（不含扩展名）
+        shortcutName: DSH WebUI
+        # 快捷方式已存在时是否强制覆盖（默认 false = 幂等跳过）
+        force: false
+        # 端口探测：已监听则直接开浏览器连上，未监听才启动（需与 webserver 端口一致）
+        port: 3080
+        # 系统托盘（PowerShell NotifyIcon，零依赖）：启动时拉起，含"打开 WebUI / 停止 DSH / 退出"
+        tray: true
+        # 打开方式：app=桌面 App 模式（默认，Chromium 系 --app 独立应用窗口：任务栏独立条目、无地址栏、图标取页面 favicon）
+        #          new-window=默认浏览器独立窗口 / default=浏览器默认行为
+        openMode: app
