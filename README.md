@@ -48,8 +48,14 @@
 
 ## 安装
 
+> 前置要求：`dsh plugin` 命令依赖 **pnpm**。若提示 `pnpm is not recognized`，先安装：
+> ```bash
+> npm install -g pnpm
+> ```
+> （或启用 Node 自带的 corepack：`corepack enable pnpm`）
+
 ```bash
-git clone https://github.com/<your-name>/dsh-native-launcher
+git clone https://github.com/ingleav626-art/dsh-native-launcher
 dsh plugin --profile web add <path-to-repo>
 # 重启 dsh web 后生效
 ```
