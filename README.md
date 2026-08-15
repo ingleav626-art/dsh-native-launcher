@@ -22,8 +22,8 @@
 - **已安装 PWA 应用优先打开**：装过应用的直接打开应用窗口，未安装自动回退浏览器
 - 系统托盘（打开 / 停止 / 退出）
 - 安装引导模态框（白底，一键唤出浏览器原生安装流程）
-- 设置页增强 section（查看配置 / 重建快捷方式 / 启用通知）
-- **任务检测 + 双通道通知**：监听 `agent/status`（running→idle）检测任务结束——页面内（Notification API，设置页一键授权）+ 页面外（**托盘气泡**，页面关闭也能提醒）；出错（`agent/error`）同样通知
+- 设置页增强 section（查看配置 / 重建快捷方式 / 通知配置）
+- **任务检测 + 双通道通知**（内置）：监听 `session/event` 的 `turn/end`（权威结束原因）区分 **正常完成 / 出错 / 被中止 / 被阻塞（等待批准/回答）/ 达 Token 上限**——页面内（Notification API，主动索权 + **结果类型开关**）+ 页面外（**托盘气泡**，页面关闭也能提醒）；设置页逐类型开关（localStorage 持久化）
 - 官方 DSH 图标全入口统一
 
 **安装为应用后自动获得**（浏览器原生能力，无需本插件代码）：任务栏独立图标、无地址栏独立窗口、开始菜单条目、可固定任务栏、应用级关闭——与桌面 App 一致的窗口体验。
@@ -42,8 +42,9 @@
 
 | 插件 | 作用 | 安装 |
 | --- | --- | --- |
-| [dsh-notification](https://github.com/omdsh-dev/dsh-notification) | 回合完成桌面通知（结果分控 + 关键字规则） | `dsh plugin --profile web add https://github.com/omdsh-dev/dsh-notification/archive/refs/heads/main.tar.gz` |
 | [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 侧边栏工作台（本插件状态面板将挂载其上） | `npm i -g dsh-better-sidebar` + `dsh plugin --profile web add dsh-better-sidebar` |
+
+> 任务通知已**内置**（原 [dsh-notification](https://github.com/omdsh-dev/dsh-notification) 的功能已合并升级进本插件，无需再装）。
 
 ## 特性
 
@@ -193,7 +194,7 @@ node tools/make-ico.mjs <input.png> <output.ico>   # PNG → ICO（≤256px，�
 
 ## 致谢
 
-- **任务通知设计参考**：[dsh-notification](https://github.com/omdsh-dev/dsh-notification)（MIT License, Copyright (c) 2026 DeepSeek）——其"回合完成投影 + 客户端决策"的设计启发了本插件的任务检测/通知实现
+- **任务通知功能合并自**：[dsh-notification](https://github.com/omdsh-dev/dsh-notification)（MIT License, Copyright (c) 2026 DeepSeek）——其"回合完成投影 + 客户端决策（结果分类 / 关键字规则）"的设计已集成升级进本插件的任务检测/通知（host `turn/end` 检测 + per-outcome 开关 + 双通道提醒），并在此基础上增加了**页面外托盘气泡**通道
 - 图标使用官方 DeepSeek Harness 品牌图标（源自 dsh web 的 `favicon.svg`），仅用于非商业开源插件场景
 
 ## 许可证
