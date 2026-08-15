@@ -20,10 +20,12 @@
 - 桌面快捷方式（官方图标）+ 静默启动（无黑窗）
 - TCP 端口探测：已运行则直连，未运行才启动（不重复启动）
 - **已安装 PWA 应用优先打开**：装过应用的直接打开应用窗口，未安装自动回退浏览器
-- 系统托盘（打开 / 停止 / 退出）
+- **应用窗口聚焦唤起**：应用已在运行时，快捷方式 / 托盘只聚焦现有窗口，绝不重复弹新实例
+- **多代 Edge 兼容**：同时支持新版 PWA 宿主进程 `pwahelper.exe` 与旧版 `msedge.exe --app-id`；窗口检测按 **app_id + 端口 URL（任意 host）** 双锚点，域名 / 应用名 / 标题均可变
+- 系统托盘（**打开 WebUI / 退出 WebUI**，"退出"＝停服务 + 关应用窗口 + 退托盘，一次彻底退出）
 - 安装引导模态框（白底，一键唤出浏览器原生安装流程）
 - 设置页增强 section（查看配置 / 重建快捷方式）+ **独立"通知"设置 section**
-- **任务完成通知**（完整集成 [dsh-notification](https://github.com/omdsh-dev/dsh-notification)，MIT）：会话投影驱动，区分 **正常完成 / 出错 / 被中止 / 被阻塞 / 达 Token 上限**，逐类型开关 + 关键词规则（包含/排除 + 正则）+ 高级选项（手动关闭 / 仅在任务不在眼前时通知）；投影 turn 推进检测天然避免历史重放轰炸
+- **任务完成通知**（完整集成 [dsh-notification](https://github.com/omdsh-dev/dsh-notification)，MIT）：会话投影驱动，区分 **正常完成 / 出错 / 被中止 / 被阻塞 / 达 Token 上限**，逐类型开关 + 关键词规则（包含/排除 + 正则）+ 高级选项（手动关闭 / 仅在任务不在眼前时通知）；投影 turn 推进检测天然避免历史重放轰炸；诊断日志走 host 端 `native-launcher.log`，不污染浏览器控制台
 - 官方 DSH 图标全入口统一
 
 **安装为应用后自动获得**（浏览器原生能力，无需本插件代码）：任务栏独立图标、无地址栏独立窗口、开始菜单条目、可固定任务栏、应用级关闭——与桌面 App 一致的窗口体验。
@@ -52,6 +54,7 @@
 - 🤫 **静默启动**：wscript 隐藏窗口，无 cmd 黑窗、无闪屏
 - 🔌 **TCP 端口探测**：实例已在运行 → 直接打开连上；未运行 → 才启动（不会 EADDRINUSE 失败；对 0.0.0.0 / 127.0.0.1 / [::] 监听形态免疫）
 - 🖥️ **已安装应用优先打开**：若 Edge/Chrome 已把站点安装为 PWA 应用，快捷方式直接打开**已安装的应用窗口**（独立任务栏、无地址栏、官方图标）；未安装时按 `openMode` 回退（`--app` 独立窗口 / `--new-window` / 默认）
+- 🎯 **聚焦唤起不重复弹窗**：应用已在运行时（无论快捷方式还是托盘），通过 Win32 API（按 PID + 窗口标题双匹配，绕过前台锁）**聚焦现有窗口**，绝不新开实例；冷启动失败也会自动换路径回退，不再"点了没反应"
 - 🛟 **冷启动自愈**：浏览器完全未运行时（首进程可能吞掉 `--app-id`/`--app` 参数），每次启动都会验证浏览器进程是否真的起来——没起来自动换下一条路径，最终回退默认方式打开，不再"点了没反应"
 - 🪟 **系统托盘**：NotifyIcon 托盘菜单（打开 WebUI / 退出 WebUI），单实例互斥，**无论从快捷方式还是终端直接启动 dsh 都会出现**；"退出 WebUI"＝停止 DSH 服务 + 关闭浏览器应用窗口 + 关闭托盘，一次彻底退出
 - ⚙️ **安装引导**：站点可安装时自动弹出白底安装模态框（含安装按钮与浏览器限制兜底提示），可一键唤出 Edge/Chrome 原生安装流程
@@ -68,6 +71,11 @@
 > （或启用 Node 自带的 corepack：`corepack enable pnpm`）
 
 ```bash
+# 方式一：npm（发布后可用）
+npm install -g dsh-native-launcher
+dsh plugin --profile web add dsh-native-launcher
+
+# 方式二：源码安装
 git clone https://github.com/ingleav626-art/dsh-native-launcher
 dsh plugin --profile web add <path-to-repo>
 # 重启 dsh web 后生效
@@ -125,7 +133,8 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 
 | 优先级 | 方式 | 说明 |
 | --- | --- | --- |
-| 0 | `--app-id=<app_id>` | host 启动时扫描 Edge 已安装应用（Manifest Resources + Preferences 按站点 URL 匹配），部署自适应 |
+| 0 | 已运行检测 → **聚焦现有窗口** | 按 app_id / 端口 URL（任意 host）匹配 pwahelper/msedge 进程；已在运行则 Win32 聚焦，绝不新开 |
+| 0 | `--app-id=<app_id>` | host 启动时扫描 Edge 已安装应用（Manifest Resources + Preferences 按站点 URL 匹配），部署自适应；冷启动后验证进程是否真的出现 |
 | 0b | AppsFolder（`explorer shell:AppsFolder\<AUMID>`） | Windows 已注册应用列表，按站点 host 前缀 + 名称匹配 |
 | 1-2 | PWA 快捷方式扫描 | 开始菜单 / 任务栏 / 桌面（浏览器 exe + `--app-id` 特征），避免自我递归 |
 | 3 | Chromium Web Applications 目录 | 旧结构 internal manifest 匹配 |
@@ -137,9 +146,10 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 | --- | --- |
 | `launcher.vbs` | wscript 入口：隐藏窗口调起 cmd |
 | `launch.cmd` | TCP 端口探测 + 启动/直连 + 拉起托盘 |
-| `open-webui.ps1` | 多路探测打开已安装应用 / 浏览器 |
-| `tray.ps1` | NotifyIcon 托盘（单实例 Mutex + 停止二次确认） |
+| `open-webui.ps1` | 多路探测打开已安装应用 / 浏览器（已运行→聚焦，未运行→启动） |
+| `tray.ps1` | NotifyIcon 托盘（单实例 Mutex；打开 WebUI / 退出 WebUI＝停服务+关应用窗口+退托盘） |
 | `dsh-webui.ico` | 快捷方式 / 托盘图标（官方 DSH 图标） |
+| `native-launcher.log` | 插件运行日志（启动/快捷方式/托盘/通知诊断） |
 | `pwa-scan.log` | PWA 应用扫描诊断日志（每次启动重写，排查用） |
 
 ## 与同类方案对比
@@ -154,6 +164,13 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 | [Ruler4396 启动器](https://github.com/Ruler4396/ds-harness-webui) | WebView2 | 服务驻留三模式、关窗即停 | 依赖 WebView2 运行时 |
 
 **差异化**：同为 dsh 插件的方案里，LvienOeria 不支持 Windows、jenokagong 无托盘，而重型桌面端（Electron/WebView2/Python）都要求**额外安装运行时**——与"不额外安装任何东西"的理念相悖。本插件是"纯 Windows 原生 + 纯插件"的最小代价路线：**桌面"应用窗口"走浏览器原生 PWA 机制**——用户安装 PWA 后快捷方式直接打开已安装应用（任务栏独立、官方图标、可固定），而非自造浏览器壳——同样是"任务栏独立应用"，成本比 Electron/WebView2 低一个数量级，且零运行时依赖。
+
+## 注意事项
+
+- **Windows 通知节流**：Windows 会**静默屏蔽短时间内的重复通知**（同 tag 的通知在几秒内连续出现时尤其明显）——这是系统行为，不是插件 bug。设置页"发送测试通知"请**间隔几秒**再点，避免连续狂点导致测试失效；实际"任务完成"通知不受影响（回合之间天然间隔较久）。
+- **PWA 重装后需要重新授权**：卸载并重装浏览器应用后，通知权限与部分站点状态会重置——在设置页通知 section 重新点一次"请求权限"即可；若测试按钮仍为灰色，刷新页面（窗口聚焦时会自动同步真实权限状态）。
+- **PWA 应用与普通浏览器存储隔离**：Edge 新版 PWA 应用窗口的 localStorage 与普通标签页不共享，因此"打开时恢复上次会话"的官方行为（`dsh.sessions.current`）在应用窗口里可能不生效——属浏览器行为；普通标签页不受影响。
+- **换端口后旧 PWA 残留**：修改 `port` 配置后，已安装的旧 PWA 仍指向旧端口，启动会自动回退 `--app` 模式（功能可用）；清理旧应用请到 `edge://apps` 手动卸载。
 
 ## 卸载
 
