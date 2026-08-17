@@ -22,7 +22,7 @@
 > （或启用 Node 自带的 corepack：`corepack enable pnpm`）
 
 ```bash
-# 方式一：npm（发布后可用）
+# 方式一：npm
 npm install -g dsh-native-launcher
 dsh plugin --profile web add dsh-native-launcher
 
