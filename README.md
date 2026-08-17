@@ -241,6 +241,7 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 
 ## 致谢
 
+- 构建于 [DeepSeek Harness](https://github.com/deepseek-ai/dsh) 插件生态之上（MIT License, Copyright (c) 2026 DeepSeek）——"以最小破坏性利用原生插件生态实现桌面级体验"的设计理念，依赖其 Cordis 插件机制与官方 API
 - **任务通知功能完整集成自**：[dsh-notification](https://github.com/omdsh-dev/dsh-notification)（MIT License, Copyright (c) 2026 DeepSeek）——host 投影（`lib/notification-host.js`）与 client 完成检测/设置（`lib/notification-client.js`）为其**原样构建产物**（v0.1.2 同步：含等待确认通知），通过本插件包内模块挂载（含 `Settings > 通知` 设置页）本插件将其浏览器通知升级为托盘通知更可靠。
 - 图标使用官方 DeepSeek Harness 品牌图标（源自 dsh web 的 `favicon.svg`），仅用于非商业开源插件场景
 

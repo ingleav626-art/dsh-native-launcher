@@ -9,7 +9,8 @@
     "assets",
     "tools",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "THIRD-PARTY-NOTICES"
   ],
   "exports": {
     ".": "./lib/index.js",
