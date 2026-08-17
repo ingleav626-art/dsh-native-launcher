@@ -19,4 +19,7 @@
         # 打开方式：app=桌面 App 模式（默认，Chromium 系 --app 独立应用窗口：任务栏独立条目、无地址栏、图标取页面 favicon）
         #          new-window=默认浏览器独立窗口 / default=浏览器默认行为
         openMode: app
+        # 关闭语义（桌面应用行为）：所有页面窗口关闭后，若没有任务在跑则优雅退出服务；
+        # 有任务在跑则驻留，任务完成且仍无窗口时自动退出。false 则关窗后服务常驻。
+        closeToExit: true
 

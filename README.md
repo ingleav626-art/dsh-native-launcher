@@ -28,12 +28,12 @@
 - **任务完成通知**（完整集成 [dsh-notification](https://github.com/omdsh-dev/dsh-notification)，MIT）：会话投影驱动，区分 **正常完成 / 出错 / 被中止 / 被阻塞 / 达 Token 上限**，逐类型开关 + 关键词规则（包含/排除 + 正则）+ 高级选项（手动关闭 / 仅在任务不在眼前时通知）；投影 turn 推进检测天然避免历史重放轰炸；诊断日志走 host 端 `native-launcher.log`，不污染浏览器控制台
 - 🔔 **托盘原生 Toast 主通道**：通知决策完成后由**托盘（PowerShell）直发 Windows 原生 Toast**（有声、进通知中心，绕开浏览器通知的不可靠转发）——浏览器通知保留为兜底；Toast 失败自动降级 BalloonTip + 提示音，失败原因记录到 `tray-notify.log`
 - 官方 DSH 图标全入口统一
+- 🚪 **关闭语义（桌面应用行为）**：所有页面窗口关闭后（`pagehide` + keepalive 上报），host 检查任务——无任务则走官方 `appExit` 优雅退出（持久化 flush）；有任务则驻留，任务完成且仍无窗口时自动退出；20 秒防抖避免刷新/闪断误杀，多窗口全部关闭才算
 
 **安装为应用后自动获得**（浏览器原生能力，无需本插件代码）：任务栏独立图标、无地址栏独立窗口、开始菜单条目、可固定任务栏、应用级关闭——与桌面 App 一致的窗口体验。
 
 ### 🚧 下一步（规划中）
 
-- **v0.2 关闭语义**：关闭 WebUI 窗口 = 优雅退出后台服务（客户端断开检测 + 任务检查 + `ctx.fiber.dispose()` 持久化 flush），有任务在跑时不退出
 - **侧边栏数据面板**：在 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 中提供"启动器状态"面板（服务状态 / 托盘状态 / PWA 安装状态 / 快捷方式状态 + 快捷操作）
 - **功能可自定义化**：设置页升级为完整配置 UI（托盘开关 / 自动打开 / 打开方式 / 端口等全部可调、可持久化）
 - **应用内退出按钮**：页面内一键退出（检查任务 → 确认 → 优雅关闭）
@@ -109,6 +109,8 @@ dsh plugin --profile web add <path-to-repo>
     tray: true
     # 打开方式：app（--app 独立窗口，默认）| new-window（独立窗口）| default（浏览器默认行为）
     openMode: app
+    # 关闭语义（桌面应用行为）：所有页面窗口关闭后，无任务则优雅退出服务；有任务则驻留到完成
+    closeToExit: true
 ```
 
 ## 工作原理
