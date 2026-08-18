@@ -15,6 +15,8 @@
 
 ## 安装
 
+> **平台**：仅支持 **Windows**（Windows 10/11，x64）。macOS / Linux 请勿安装本插件。
+>
 > 前置要求：`dsh plugin` 命令依赖 **pnpm**。若提示 `pnpm is not recognized`，先安装：
 > ```bash
 > npm install -g pnpm
@@ -42,7 +44,7 @@ dsh plugin --profile web add <path-to-repo>
 
 -  **桌面快捷方式**：安装即生成（默认名 `DSH WebUI`，官方 DSH 图标），双击即用；幂等——已存在则跳过，指向错误/图标变更自动重建，设置页可强制重建
 -  **静默启动**：wscript 隐藏窗口，无 cmd 黑窗、无闪屏
--  **TCP 端口探测**：实例已在运行 → 直接打开连上；未运行 → 才启动（不会 EADDRINUSE 失败；对 0.0.0.0 / 127.0.0.1 / [::] 监听形态免疫）
+-  **HTTP 就绪探测**：实例已在运行（HTTP 200）→ 直接打开连上；未运行 → 才启动（不会 EADDRINUSE 失败；对 0.0.0.0 / 127.0.0.1 / [::] 监听形态免疫；TCP 通但服务未就绪时不会误判）
 -  **已安装应用优先打开**：若 Edge/Chrome 已把站点安装为 PWA 应用，快捷方式直接打开**已安装的应用窗口**（独立任务栏、无地址栏、官方图标）；未安装时按 `openMode` 回退（`--app` 独立窗口 / `--new-window` / 默认）
 -  **聚焦唤起不重复弹窗**：应用已在运行时（无论快捷方式还是托盘），通过 Win32 API（按 PID + 窗口标题双匹配，绕过前台锁）**聚焦现有窗口**，绝不新开实例；冷启动失败也会自动换路径回退，不再"点了没反应"
 -  **冷启动自愈**：浏览器完全未运行时（首进程可能吞掉 `--app-id`/`--app` 参数），每次启动都会验证浏览器进程是否真的起来——没起来自动换下一条路径，最终回退默认方式打开，不再"点了没反应"
@@ -84,6 +86,9 @@ A：重启 dsh 会自动重新拉起（含旧托盘自动换新）；仍不行�
 **Q：一个任务会收到两条通知（托盘+浏览器）？**
 A：不会。托盘是主通道，浏览器通知只在其未送达时兜底（3 秒确认），正常情况下只弹一条。
 
+**Q：双击快捷方式只有命令行窗口，WebUI 没打开？**
+A：快捷方式通过 `dsh --profile web` 启动服务，**依赖 PATH 中的全局 dsh 命令**。若你平时用 `npx @deepseek-ai/dsh web` 运行（dsh 未全局安装），`dsh` 命令不存在会导致启动失败。v0.2.1 起会自动回退 npx 启动并在窗口显示提示；建议执行 `npm install -g @deepseek-ai/dsh` 全局安装以获得秒开体验。若仍失败，请提供 `%USERPROFILE%\.dsh-webui-launcher\` 下的日志（新建 issue 时模板会引导提供）。
+
 ## 卸载
 
 ```bash
@@ -103,7 +108,18 @@ Remove-Item "$env:USERPROFILE\Desktop\DSH WebUI.lnk"                 # 3. 桌面
 
 ## 版本状态
 
-###  v0.2（当前）—— 桌面化体验完整闭环
+### v0.2.1（当前）—— 启动可靠性修复
+
+**v0.2.1 修复**：
+- **launch.cmd 分支结构**：诊断日志文本中的括号/箭头破坏 cmd 的 if/else 解析，导致"已运行/未运行"分支同时执行（前端拉起的同时又启动新实例、端口冲突）——已修复并实测验证
+- **HTTP 就绪探测**：启动探测从 TCP 改为 HTTP（返回 200 才算"已运行"），消除托盘退出后立即双击时的误判
+- **启动命令兜底**：`dsh` 不在 PATH（npx 方式使用）时自动回退 `npx --yes @deepseek-ai/dsh`，并在窗口显示明确提示，不再静默失败
+- **托盘拉起可靠性**：spawn 参数修复 + 存活验证自动重试（最多 3 次），根治"托盘 spawn 后立即退出"
+- **环境自诊断日志**：启动时自动记录 node / dsh 命令可用性 / 端口 / 托盘进程 / 快捷方式目标（PowerShell 5.1 兼容）——问题反馈无需反复追问，看日志即可定位
+- **auto-open 去重**：页面已在用时不再重复打开浏览器
+- **close-to-exit 门槛**：仅快捷方式（启动器）拉起时生效；命令行 / npx 启动为常驻服务
+
+**v0.2（桌面化体验完整闭环）**：
 
 **v0.1 基础（桌面化外壳）**：
 - 桌面快捷方式（官方图标）+ 静默启动（无黑窗）
@@ -136,9 +152,9 @@ Remove-Item "$env:USERPROFILE\Desktop\DSH WebUI.lnk"                 # 3. 桌面
 桌面快捷方式(DSH WebUI.lnk)
     │ wscript.exe launcher.vbs（隐藏窗口，无黑窗）
     ▼
-launch.cmd TCP 端口探测 (127.0.0.1:<port>)
-    ├─ 已监听 → 拉起托盘 → open-webui.ps1（打开已装应用/浏览器，不重复启动）
-    └─ 未监听 → 拉起托盘 → set DSH_LAUNCHER=1 && dsh --profile web（静默启动）
+launch.cmd HTTP 就绪探测 (127.0.0.1:<port>)
+    ├─ 已运行(HTTP 200) → 拉起托盘 → open-webui.ps1（打开已装应用/浏览器，不重复启动）
+    └─ 未运行 → 拉起托盘 → set DSH_LAUNCHER=1 && dsh --profile web（静默启动；dsh 不在 PATH 时自动回退 npx --yes @deepseek-ai/dsh）
                                 │
                                 ▼
                          插件 apply（任意启动方式都会执行）
@@ -192,7 +208,7 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 ```yaml
 - id: native-launcher
   config:
-    # 快捷方式双击后执行的启动命令（cmd 中运行，依赖 PATH 里的 dsh）
+    # 快捷方式双击后执行的启动命令（cmd 中运行，依赖 PATH 里的 dsh；dsh 缺失时自动回退 npx --yes @deepseek-ai/dsh）
     launchCommand: dsh --profile web
     # 是否自动打开浏览器（仅快捷方式启动且带 DSH_LAUNCHER=1 时）
     autoOpen: true
@@ -215,13 +231,15 @@ launch.cmd TCP 端口探测 (127.0.0.1:<port>)
 | 文件 | 作用 |
 | --- | --- |
 | `launcher.vbs` | wscript 入口：隐藏窗口调起 cmd |
-| `launch.cmd` | TCP 端口探测 + 启动/直连 + 拉起托盘 |
+| `launch.cmd` | HTTP 就绪探测 + 启动/直连 + 拉起托盘（dsh 缺失时自动 npx 回退） |
 | `open-webui.ps1` | 多路探测打开已安装应用 / 浏览器（已运行→聚焦，未运行→启动） |
 | `tray.ps1` | NotifyIcon 托盘（单实例 Mutex；打开 / 退出 WebUI；Toast 通知轮询；版本标记） |
 | `tray-version.txt` | 托盘脚本版本标记（apply 用它做托盘自更新） |
 | `tray-notify.json` | 通知队列文件（host 写 → 托盘轮询弹 Toast → 消费删除） |
 | `dsh-webui.ico` | 快捷方式 / 托盘图标（官方 DSH 图标） |
-| `native-launcher.log` | 插件运行日志（启动/快捷方式/托盘/通知/关闭语义诊断） |
+| `native-launcher.log` | 插件运行日志（启动/快捷方式/托盘/通知/关闭语义诊断，含环境快照） |
+| `launch.log` | 快捷方式启动分支日志（每次双击的探测结果与走向，排查用） |
+| `tray-exit.log` | 托盘退出原因记录（mutex 冲突 / 正常退出，排查用） |
 | `tray-notify.log` | 托盘 Toast 失败原因 / tick 错误（排查用） |
 | `pwa-scan.log` | PWA 应用扫描诊断日志（每次启动重写，排查用） |
 

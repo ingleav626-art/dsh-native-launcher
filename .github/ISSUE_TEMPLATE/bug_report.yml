@@ -1,0 +1,95 @@
+name: Bug 报告
+description: 报告插件问题（启动失败 / 托盘异常 / 通知异常 / 关窗退出异常等）
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: checkboxes
+    id: read-qa
+    attributes:
+      label: 提交前确认
+      description: 请先阅读 README 的「常见问题」章节（https://github.com/ingleav626-art/dsh-native-launcher#常见问题），确认你的问题未被解答。
+      options:
+        - label: 我已阅读 README 常见问题（QA），问题仍未解决
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告！请尽量填写以下信息，**日志会自动告诉我们大部分答案**——提供日志能大幅加快定位。
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 运行 `npm view dsh-native-launcher version` 查看当前版本
+      placeholder: 0.2.1
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: dsh 版本
+      description: 启动 dsh 时控制台第一行通常有版本号（或 `npx @deepseek-ai/dsh --version`）
+      placeholder: 0.1.0-rc.6
+
+  - type: dropdown
+    id: start-method
+    attributes:
+      label: 启动方式
+      description: 你怎么启动 dsh 的？（影响排查方向）
+      options:
+        - 桌面快捷方式（双击 "DSH WebUI"）
+        - 命令行：npx @deepseek-ai/dsh web
+        - 命令行：dsh --profile web（全局安装）
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: describe
+    attributes:
+      label: 问题描述
+      description: 发生了什么？你期望发生什么？
+      placeholder: 双击快捷方式后只有命令行窗口，WebUI 没有打开……
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 尽可能详细（是否每次必现 / 偶尔出现）
+      placeholder: |
+        1. 双击桌面快捷方式
+        2. ...
+        3. ...
+      validations:
+        required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志文件（强烈建议提供）
+      description: |
+        打开文件夹 `%USERPROFILE%\.dsh-webui-launcher\`，把下面的日志文件**拖进本框**（或直接粘贴内容）：
+        - `native-launcher.log`（插件主日志，含环境诊断）
+        - `launch.log`（快捷方式启动分支记录）
+        - `tray-exit.log`（托盘退出/互斥记录）
+        - `tray-notify.log`（通知通道记录，可选）
+      placeholder: （把文件拖进来，或粘贴内容）
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图
+      description: 报错弹窗 / 命令行窗口 / 页面现象截图（可选）
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 已重启 dsh 后问题仍然存在
+        - label: 已提供日志文件（或说明无法提供的原因）
