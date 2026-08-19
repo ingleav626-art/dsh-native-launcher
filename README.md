@@ -17,6 +17,8 @@
 
 > **平台**：仅支持 **Windows**（Windows 10/11，x64）。macOS / Linux 请勿安装本插件。
 >
+> **版本要求**：需要 **dsh >= 0.1.0-rc.8**（rc.8 起官方默认自动打开浏览器，插件通过 `--no-open` 避免双开；该参数 rc.8 起支持）。若 dsh 版本过低，插件启动时会记录日志提醒升级：`npm install -g @deepseek-ai/dsh@0.1.0-rc.8`
+>
 > 前置要求：`dsh plugin` 命令依赖 **pnpm**。若提示 `pnpm is not recognized`，先安装：
 > ```bash
 > npm install -g pnpm
@@ -108,7 +110,15 @@ Remove-Item "$env:USERPROFILE\Desktop\DSH WebUI.lnk"                 # 3. 桌面
 
 ## 版本状态
 
-### v0.2.1（当前）—— 启动可靠性修复
+### v0.2.2（当前）—— rc.8 适配 + 关闭语义修复
+
+**v0.2.2**：
+- **rc.8 适配（避免双开）**：官方 dsh web 自 rc.8 起默认自动打开浏览器（普通标签页）——启动命令默认加 `--no-open` 让官方让位，浏览器由插件负责打开（PWA 应用窗口优先），不再出现"官方标签页 + 插件应用窗口"双开；**版本要求 dsh >= 0.1.0-rc.8**（`--no-open` 参数 rc.8 起支持，低版本插件会日志提醒升级）
+- **关闭语义修复**：关窗时任务在跑 → **立即挂起等待**（不再等 20s 防抖到期），任务完成时**重新开始** 20s+2s 计时——修复"短任务（<20s）结束后重开页面只剩 2s 窗口"的问题（任务刚结束想重开页面却连不上）
+- **关闭语义全链路日志**：schedule / 挂起 / 唤醒 / 二次确认 / 取消均记录原因与状态，时序问题看日志即定位
+- npm 关键词：`dsh, deepseek-harness, launcher, windows, tray, native, zero-dependency, plugin`
+
+### v0.2.1 —— 启动可靠性修复
 
 **v0.2.1 修复**：
 - **launch.cmd 分支结构**：诊断日志文本中的括号/箭头破坏 cmd 的 if/else 解析，导致"已运行/未运行"分支同时执行（前端拉起的同时又启动新实例、端口冲突）——已修复并实测验证
@@ -209,7 +219,8 @@ launch.cmd HTTP 就绪探测 (127.0.0.1:<port>)
 - id: native-launcher
   config:
     # 快捷方式双击后执行的启动命令（cmd 中运行，依赖 PATH 里的 dsh；dsh 缺失时自动回退 npx --yes @deepseek-ai/dsh）
-    launchCommand: dsh --profile web
+    # --no-open：让官方 dsh web（rc.8 起默认自动开浏览器）让位，避免双开——浏览器由插件负责打开（PWA 应用优先）
+    launchCommand: dsh --profile web --no-open
     # 是否自动打开浏览器（仅快捷方式启动且带 DSH_LAUNCHER=1 时）
     autoOpen: true
     # 快捷方式名称（不含扩展名）
