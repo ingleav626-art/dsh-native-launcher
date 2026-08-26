@@ -1,0 +1,12 @@
+{
+  "name": "dsh-notification",
+  "source": "vendored",
+  "upstream": "dsh-notification (bundled artifact, original repo TBD — fill in when confirmed)",
+  "pinnedVersion": "unknown",
+  "integratedIn": "pre-0.2.x",
+  "files": {
+    "vendor/notification-host.js": "上游打包产物（host 半区，逐字节保留）",
+    "adapter.js": "我们的集成胶水：元数据声明 + 入口包装"
+  },
+  "notes": "client 半区随 lib/client.js 打包产物分发（dsh 固定加载 /plugins/<id>/client.js）。确认上游仓库后补 upstream/pinnedVersion。"
+}

@@ -24,4 +24,8 @@
         # 关闭语义（桌面应用行为）：所有页面窗口关闭后，若没有任务在跑则优雅退出服务；
         # 有任务在跑则驻留，任务完成且仍无窗口时自动退出。false 则关窗后服务常驻。
         closeToExit: true
+        # 可插拔功能模块开关（整合包架构）：缺省值来自各模块 defaultEnabled，此处显式配置优先
+        modules:
+          # 任务通知（WebUI 投影通知通道）
+          notifications: true
 
