@@ -1,6 +1,6 @@
 {
   "name": "dsh-native-launcher",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "dsh plugin (Windows): desktop shortcut that launches dsh web silently (hidden console) and auto-opens the browser; port-aware reconnect; settings UI section; tray with native toast notifications and close-to-exit semantics.",
   "type": "module",
   "main": "./lib/index.js",
