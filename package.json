@@ -42,5 +42,8 @@
     "native",
     "zero-dependency",
     "plugin"
-  ]
+  ],
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  }
 }
