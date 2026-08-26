@@ -95,6 +95,8 @@ A：快捷方式通过 `dsh --profile web` 启动服务，**依赖 PATH 中的�
 
 ## 卸载
 
+> **范围说明**：一键卸载仅移除本插件提供的**桌面化增强组件**（快捷方式 / 托盘 / 自动打开等）；dsh 服务本身与其数据不受影响。
+
 **推荐：设置页一键卸载**——打开 WebUI 设置 → "WebUI 启动器" → 一键卸载启动器：
 
 - 停止系统托盘与 dsh 后端服务（确认后约 6 秒自动停止，无需手动 taskkill）
@@ -120,6 +122,17 @@ reg delete "HKCU\Software\Classes\AppUserModelId\DshNativeLauncher" /f   # 4. �
 </details>
 
 最后重启 dsh。
+
+<details><summary>想连 <b>dsh 本体一起移除</b>？（与本插件无关，谨慎操作）</summary>
+
+本插件不代管 dsh 本体的卸载（会话记录、全局设置等其他数据也在其中）。如确定不再使用：
+
+```powershell
+npm uninstall -g @deepseek-ai/dsh    # 移除 dsh 服务端
+```
+
+并按需备份后清理 `DSH_HOME` 目录（默认 `%USERPROFILE%\.dsh` 或自定义路径，含 sessions / settings 等个人数据）。
+</details>
 
 ## 版本状态
 
