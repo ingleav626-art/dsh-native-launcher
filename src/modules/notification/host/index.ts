@@ -10,7 +10,15 @@ import type { NotificationSettings } from '../shared/types.ts'
 import { notificationProjection } from './fold.ts'
 import { createNotifier, type Notifier } from './notifier.ts'
 import { createPendingChannel, isPendingReport, type PendingChannel } from './pending.ts'
-import type { LoggerPort, NotifyPort, ProjectionPort, SessionsPort, SettingsScopeFactory } from './ports.ts'
+import type {
+  LoggerPort,
+  NotifyPort,
+  ProjectionPort,
+  SessionsPort,
+  SettingsScopeFactory,
+  SettingsScopeLike,
+} from './ports.ts'
+import { firstRuleError } from './rules.ts'
 import { createNotificationSettings, SETTINGS_NAMESPACE } from './settings.ts'
 import { createWatcher } from './watch.ts'
 
@@ -40,6 +48,14 @@ export interface NotificationModule {
   start(): () => void
   /** 处理 client 传感器上报；形状非法返回 false（上报来自渲染进程，不可信）。 */
   reportPending(raw: unknown): boolean
+  /** 读当前通知设置（设置卡片回显用）；未装配时为 undefined。 */
+  getSettings(): NotificationSettings | undefined
+  /**
+   * 更新通知设置（设置卡片写入用）。写入前做规则校验（host 侧把关），
+   * 非法规则拒绝落库。
+   * @returns 是否接受该次更新。
+   */
+  updateSettings(patch: Partial<NotificationSettings>): Promise<boolean>
 }
 
 /** 投影正文缺省预算（与上游 `Config` 默认一致）。 */
@@ -55,6 +71,7 @@ export { manifest } from '../manifest.ts'
 export function createNotificationModule(deps: NotificationModuleDeps): NotificationModule {
   const notifier: Notifier = createNotifier({ notify: deps.notify, logger: deps.logger })
   let pending: PendingChannel | undefined
+  let scope: SettingsScopeLike<NotificationSettings> | undefined
 
   return {
     id: manifest.id,
@@ -62,8 +79,9 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
     settingsNamespace: SETTINGS_NAMESPACE,
 
     start() {
-      const scope = createNotificationSettings(deps.settingsScope)
-      const readSettings = (): NotificationSettings => scope.get()
+      const activeScope = createNotificationSettings(deps.settingsScope)
+      scope = activeScope
+      const readSettings = (): NotificationSettings => activeScope.get()
 
       // 投影必须先注册：watch 的启动播种要读它的快照
       deps.projections.register(
@@ -96,6 +114,25 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
         return false
       }
       pending.report(raw)
+      return true
+    },
+
+    getSettings() {
+      return scope?.get()
+    },
+
+    async updateSettings(patch) {
+      if (scope === undefined) return false
+      // 规则写入前把关：非法规则（空 pattern / 坏正则）拒绝落库
+      if (Array.isArray(patch.rules)) {
+        const invalid = firstRuleError(patch.rules)
+        if (invalid !== undefined) {
+          deps.logger.warn(`[notification] 拒绝写入：第 ${invalid.index + 1} 条规则非法（${invalid.key}）`)
+          return false
+        }
+      }
+      await scope.update(patch)
+      deps.logger.info('[notification] 设置已更新（开关/规则即时生效，无需重启）')
       return true
     },
   }
