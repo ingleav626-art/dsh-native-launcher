@@ -56,6 +56,12 @@ export interface SessionIdentityLike {
   readonly id: string
   /** 会话来源；`subagent` 不上报（对齐上游 runner.ts）。 */
   readonly origin?: string
+  /**
+   * 适配层给的**官方会话句柄**（不透明）：官方 `sessionProjections.snapshot(session)` 要的是
+   * 真 Session 对象（内部要走 `session.snapshotEvents()`），而我们这一层只认窄摘要——
+   * 模块只管原样透传，绝不解读（2026-09-11 沙箱实测：把摘要喂进去会 TypeError）。
+   */
+  readonly handle?: unknown
 }
 
 /** 投影接缝（官方 `ctx.sessionProjections` 的消费者视角）。 */

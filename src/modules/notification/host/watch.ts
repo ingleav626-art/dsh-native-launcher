@@ -50,6 +50,8 @@ function asProjectionValue(value: unknown): NotificationProjectionValue | undefi
 export function createWatcher(deps: WatchDeps): Watcher {
   /** 每会话最后观察到的投影 turn（首见播种，不用 `has` 判定，因为 turn 0 也是合法基线）。 */
   const observedTurn = new Map<string, number>()
+  /** 已就"未推进"留痕过的 `会话|turn`（变更流每个事件都可能带同一 turn，不去重会刷屏）。 */
+  const staleLogged = new Set<string>()
 
   const readProjection = (id: string): NotificationProjectionValue | undefined => {
     const session = deps.sessions.get(id)
@@ -62,6 +64,9 @@ export function createWatcher(deps: WatchDeps): Watcher {
     for (const id of [...observedTurn.keys()]) {
       if (liveIds.has(id)) continue
       observedTurn.delete(id)
+      for (const key of [...staleLogged]) {
+        if (key.startsWith(`${id}|`)) staleLogged.delete(key)
+      }
       deps.notifier.forgetSession(id)
     }
   }
@@ -81,7 +86,19 @@ export function createWatcher(deps: WatchDeps): Watcher {
     const projection = asProjectionValue(value)
     const { nextTurn, fresh } = projectionAdvance(observedTurn.get(id), projection)
     observedTurn.set(id, nextTurn)
-    if (!fresh) return
+    if (!fresh) {
+      // 未推进 = 去重生效点（重放 / 已处理过的 turn）。旧 client 有 `advance-stale` 打点，
+      // 迁移时丢了——这里按"每会话每 turn 一次"补回：排查"通知弹两次/该弹没弹"只看这一条。
+      const turn = projection?.turn
+      if (turn !== undefined && turn >= 1) {
+        const staleKey = `${id}|${turn}`
+        if (!staleLogged.has(staleKey)) {
+          staleLogged.add(staleKey)
+          deps.logger.info(`[watch] turn ${turn} 未推进（重放或已处理），跳过投递 (session=${id}, seq=${seq})`)
+        }
+      }
+      return
+    }
     const summary = deps.sessions.get(id)
     const plan = notificationFor(id, summary?.origin ?? session.origin, summary?.title, projection, deps.settings())
     if (plan === null) {

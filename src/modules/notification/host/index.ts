@@ -18,7 +18,7 @@ import type {
   SettingsScopeFactory,
   SettingsScopeLike,
 } from './ports.ts'
-import { firstRuleError } from './rules.ts'
+import { firstRuleError } from '../shared/rules.ts'
 import { createNotificationSettings, SETTINGS_NAMESPACE } from './settings.ts'
 import { createWatcher } from './watch.ts'
 
@@ -56,6 +56,16 @@ export interface NotificationModule {
    * @returns 是否接受该次更新。
    */
   updateSettings(patch: Partial<NotificationSettings>): Promise<boolean>
+  /**
+   * 发送一条测试通知（设置卡片「发送测试通知」按钮用）。
+   *
+   * 为什么需要：托盘通道的排错点是"到底哪一环断了"（模块 → 投递端 → 托盘文件 → 托盘进程 → 系统）。
+   * 这条走**与真实通知完全相同的投递端**，一次点击即可验证整条链；刻意不经规则与去重
+   * （测试不该被用户规则拦住），但**不绕过配置开关**（用户在设置里关了托盘通知就该没反应，
+   * 日志里会留 `[notify] suppressed by config`）。
+   * @returns 是否已交到投递端（不代表系统真的弹了：托盘未运行/勿扰模式都会影响）。
+   */
+  testNotify(): boolean
 }
 
 /** 投影正文缺省预算（与上游 `Config` 默认一致）。 */
@@ -134,6 +144,23 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
       await scope.update(patch)
       deps.logger.info('[notification] 设置已更新（开关/规则即时生效，无需重启）')
       return true
+    },
+
+    testNotify() {
+      try {
+        deps.notify.notify({
+          title: '任务通知测试',
+          body: '看到这条托盘通知，说明「模块 → 投递端 → 托盘 → 系统」整条链路已打通。',
+          // tag 唯一：Windows 会静默吞掉短时间内同 tag 的后续通知（本项目血泪之一），
+          // 测试通知必须每次都是新 tag，否则连点两次第二次看不到。
+          tag: `dsh-notification-test-${Date.now()}`,
+        })
+        deps.logger.info('[notification] 测试通知已交投递端（来源：设置卡片「发送测试通知」）')
+        return true
+      } catch (error) {
+        deps.logger.fail(`[notification] 测试通知投递失败：${String(error)}`)
+        return false
+      }
     },
   }
 }

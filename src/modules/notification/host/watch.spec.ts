@@ -88,6 +88,29 @@ describe('createWatcher', () => {
     expect(delivered).toHaveLength(0)
   })
 
+  it('未推进（重放）时留下**每会话每 turn 一次**的日志：排查"通知弹两次/该弹没弹"靠它', () => {
+    const lines: string[] = []
+    const snapshots = new Map<string, NotificationProjectionValue>([['s1', completed(1)]])
+    const projections = fakeProjections(snapshots)
+    const notifier = createNotifier({ notify: { notify: () => {} }, logger: silentLogger })
+    const watcher = createWatcher({
+      projections: projections.port,
+      sessions: fakeSessions([{ id: 's1', title: 'Deploy' }]),
+      settings: () => testSettings(),
+      notifier,
+      logger: { info: message => { lines.push(message) }, warn: () => {}, fail: () => {} },
+    })
+    watcher.start()
+    // 同一 turn 重放三次（官方变更流对每个 committed event 都会回调）
+    projections.emit({ id: 's1' }, completed(1), 5)
+    projections.emit({ id: 's1' }, completed(1), 5)
+    projections.emit({ id: 's1' }, completed(1), 5)
+    const stale = lines.filter(line => line.includes('未推进'))
+    expect(stale).toHaveLength(1)
+    expect(stale[0]).toContain('turn 1')
+    expect(stale[0]).toContain('session=s1')
+  })
+
   it('非本模块的投影键被忽略', () => {
     const { delivered, projections, watcher } = setup({ sessions: [{ id: 's1', title: 'Deploy' }] })
     watcher.start()
