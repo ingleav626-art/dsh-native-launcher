@@ -11,6 +11,7 @@ import type { NotificationProjectionValue, NotificationSettings } from '../share
 import type { LoggerPort, ProjectionPort, SessionIdentityLike, SessionsPort } from './ports.ts'
 import type { Notifier } from './notifier.ts'
 import { notificationFor } from './planner.ts'
+import type { PresenceTracker } from './presence.ts'
 import { projectionAdvance } from './signals.ts'
 
 /** watch 服务的依赖（端口注入）。 */
@@ -19,6 +20,8 @@ export interface WatchDeps {
   readonly sessions: SessionsPort
   /** 读当前设置（每次决策现取，规则改动即时生效）。 */
   readonly settings: () => NotificationSettings
+  /** UI 存在态：`backgroundOnly`（任务就在眼前时不打扰）的判定输入。 */
+  readonly presence: PresenceTracker
   readonly notifier: Notifier
   readonly logger: LoggerPort
 }
@@ -78,6 +81,8 @@ export function createWatcher(deps: WatchDeps): Watcher {
       observedTurn.set(summary.id, projectionAdvance(undefined, readProjection(summary.id)).nextTurn)
     }
     dropVanished(new Set(summaries.map(summary => summary.id)))
+    // 播种留痕：重启后"历史不补通知"是设计，但用户看不到这条就会以为漏了/重复了
+    deps.logger.info(`[watch] 启动播种 ${summaries.length} 个会话（只记基线，历史不补通知）`)
   }
 
   const onChanged = (session: SessionIdentityLike, key: string, value: unknown, seq: number): void => {
@@ -100,7 +105,14 @@ export function createWatcher(deps: WatchDeps): Watcher {
       return
     }
     const summary = deps.sessions.get(id)
-    const plan = notificationFor(id, summary?.origin ?? session.origin, summary?.title, projection, deps.settings())
+    const current = deps.settings()
+    // backgroundOnly：任务就在眼前（页面在前台且正在看这个会话）→ 不打扰。
+    // 上游在 client 侧判定；本项目决策收归 host，故由启动器薄传感器上报存在态（见 presence.ts）。
+    if (deps.presence.suppresses(id, current)) {
+      deps.logger.info(`[watch] turn ${nextTurn} 被 backgroundOnly 抑制（会话正在眼前，session=${id}）`)
+      return
+    }
+    const plan = notificationFor(id, summary?.origin ?? session.origin, summary?.title, projection, current)
     if (plan === null) {
       deps.logger.info(`[watch] turn ${nextTurn} 被设置/规则抑制 (session=${id}, seq=${seq})`)
       return

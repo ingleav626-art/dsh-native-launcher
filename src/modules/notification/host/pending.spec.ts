@@ -8,6 +8,7 @@ import type { TrayNotification } from '../shared/types.ts'
 import { createNotifier } from './notifier.ts'
 import type { LoggerPort } from './ports.ts'
 import { createPendingChannel, isPendingReport, type PendingChannelDeps } from './pending.ts'
+import { createPresenceTracker } from './presence.ts'
 
 const silentLogger: LoggerPort = { info: () => {}, warn: () => {}, fail: () => {} }
 
@@ -18,7 +19,9 @@ function fakeDeps(settings = testSettings()): { deps: PendingChannelDeps; delive
     delivered,
     deps: {
       settings: () => settings,
-      notifier: createNotifier({ notify: { notify: notification => { delivered.push(notification) } }, logger: silentLogger }),
+      // 未上报存在态 → 按"不在眼前"处理（不抑制），与真机页面全关场景一致
+      presence: createPresenceTracker(),
+      notifier: createNotifier({ notify: { notify: notification => { delivered.push(notification) } }, logger: silentLogger, settings: () => testSettings() }),
       logger: silentLogger,
     },
   }

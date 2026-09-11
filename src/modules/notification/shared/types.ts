@@ -96,6 +96,11 @@ export interface TrayNotification {
   readonly body: string
   /** 通知分组标签：同一 tag 的系统通知会被替换，故必须 turn/pending 级唯一（上游 notifier.ts 注释）。 */
   readonly tag: string
+  /**
+   * 常驻直到用户手动处理（上游 `requireInteraction` 语义）：托盘用 `scenario="reminder"` 呈现，
+   * 通知停在屏幕上不自动消失。缺省 false = 系统默认时长。
+   */
+  readonly persistent?: boolean
 }
 
 /**

@@ -12,6 +12,7 @@ import { injectIcon } from './icon.ts'
 import { startInstallPrompt } from './install-prompt.ts'
 import { clientInfo, clientWarn, configureClientLog, type ClientLogSender } from './log.ts'
 import { applyClientModules } from './modules.ts'
+import { createPresenceSender, startPresenceReporter } from './presence.ts'
 import { LauncherSection } from './section.ts'
 import { registerSettingsSection } from './slots.ts'
 import { RPC_PATH, type ClientContextLike, type RpcFace } from './types.ts'
@@ -70,6 +71,12 @@ export function apply(ctx: ClientContextLike): void {
   clientInfo(`[log] client 已启动（inject=${inject.join(',')}，rpc=${rpc === undefined ? 'unavailable->direct' : 'ok'}）`)
 
   startBeacon()
+
+  // 存在态上报：`backgroundOnly`（"任务不在眼前才通知"）的两个判定输入只有浏览器知道
+  // （是否前台 + 正在看哪个会话），host 侧据此决定要不要打扰（见 host/presence.ts）
+  if (rpc !== undefined) {
+    startPresenceReporter(ctx, createPresenceSender(rpc))
+  }
 
   // rpc 是卡片的数据来源；拿不到就不注册卡片（注册了也只会显示读取失败，还多一次渲染地雷）
   if (rpc === undefined) {

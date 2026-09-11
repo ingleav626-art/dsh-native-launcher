@@ -12,6 +12,7 @@ import type { NotificationSettings, PendingKind } from '../shared/types.ts'
 import type { LoggerPort } from './ports.ts'
 import type { Notifier } from './notifier.ts'
 import { asPendingKind, pendingNotificationFor } from './planner.ts'
+import type { PresenceTracker } from './presence.ts'
 import { pendingAdvance } from './signals.ts'
 
 /** client 传感器的一次上报（跨进程输入，字段一律当作不可信）。 */
@@ -28,6 +29,8 @@ export interface PendingReport {
 /** pending 通道依赖。 */
 export interface PendingChannelDeps {
   readonly settings: () => NotificationSettings
+  /** UI 存在态：审批/提问就摆在眼前时不打扰（同上 `backgroundOnly` 语义）。 */
+  readonly presence: PresenceTracker
   readonly notifier: Notifier
   readonly logger: LoggerPort
 }
@@ -64,9 +67,15 @@ export function createPendingChannel(deps: PendingChannelDeps): PendingChannel {
       const { kind: nextKind, fresh } = pendingAdvance(observed.get(id), asPendingKind(report.kind))
       observed.set(id, { kind: nextKind })
       if (!fresh || nextKind === undefined) return
+      const current = deps.settings()
+      // backgroundOnly：审批/提问就摆在眼前（页面在前台且正在看这个会话）→ 不打扰
+      if (deps.presence.suppresses(id, current)) {
+        deps.logger.info(`[pending] ${nextKind} 被 backgroundOnly 抑制（会话正在眼前，session=${id}）`)
+        return
+      }
       const sequence = (sequences.get(id) ?? 0) + 1
       sequences.set(id, sequence)
-      const plan = pendingNotificationFor(id, report.origin, report.title, nextKind, sequence, deps.settings())
+      const plan = pendingNotificationFor(id, report.origin, report.title, nextKind, sequence, current)
       if (plan === null) {
         deps.logger.info(`[pending] ${nextKind} 被设置/规则抑制 (session=${id})`)
         return

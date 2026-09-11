@@ -20,6 +20,7 @@ import type {
 } from './ports.ts'
 import { firstRuleError } from '../shared/rules.ts'
 import { createNotificationSettings, SETTINGS_NAMESPACE } from './settings.ts'
+import { createPresenceTracker } from './presence.ts'
 import { createWatcher } from './watch.ts'
 
 /** 模块可调配置（来自启动器设置或 cordis patch）。 */
@@ -48,6 +49,12 @@ export interface NotificationModule {
   start(): () => void
   /** 处理 client 传感器上报；形状非法返回 false（上报来自渲染进程，不可信）。 */
   reportPending(raw: unknown): boolean
+  /**
+   * 处理 client 上报的 UI 存在态（页面是否在前台 / 正在看哪个会话）。
+   * `backgroundOnly`（"任务不在眼前才通知"）的判定输入——host 自己看不到浏览器状态。
+   * @returns 是否接受（形状非法或未装配返回 false）。
+   */
+  reportPresence(raw: unknown): boolean
   /** 读当前通知设置（设置卡片回显用）；未装配时为 undefined。 */
   getSettings(): NotificationSettings | undefined
   /**
@@ -79,8 +86,12 @@ export { manifest } from '../manifest.ts'
  * @param deps - 端口注入集合。
  */
 export function createNotificationModule(deps: NotificationModuleDeps): NotificationModule {
-  const notifier: Notifier = createNotifier({ notify: deps.notify, logger: deps.logger })
+  // 存在态追踪器在 create 时就建：client 可能在 start 之前就上报（页面先于模块装好）
+  const presence = createPresenceTracker()
+  /** 测试通知的单调序号（同一毫秒连点两次也要拿到不同 tag，见 testNotify）。 */
+  let testSequence = 0
   let pending: PendingChannel | undefined
+  let notifier: Notifier | undefined
   let scope: SettingsScopeLike<NotificationSettings> | undefined
 
   return {
@@ -92,23 +103,28 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
       const activeScope = createNotificationSettings(deps.settingsScope)
       scope = activeScope
       const readSettings = (): NotificationSettings => activeScope.get()
+      // 投递编排在 start 里建：它要读设置（requireInteraction → 托盘常驻呈现），
+      // 而设置作用域是 start 的产物
+      const activeNotifier = createNotifier({ notify: deps.notify, logger: deps.logger, settings: readSettings })
+      notifier = activeNotifier
 
       // 投影必须先注册：watch 的启动播种要读它的快照
       deps.projections.register(
         notificationProjection({ maxBodyChars: deps.config?.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS }),
       )
 
-      pending = createPendingChannel({ settings: readSettings, notifier, logger: deps.logger })
+      pending = createPendingChannel({ settings: readSettings, presence, notifier: activeNotifier, logger: deps.logger })
       const stopWatch = createWatcher({
         projections: deps.projections,
         sessions: deps.sessions,
         settings: readSettings,
-        notifier,
+        presence,
+        notifier: activeNotifier,
         logger: deps.logger,
       }).start()
 
       deps.logger.info(
-        `[notification] 已装配：投影 notification + change feed 订阅 + pending 通道 (ns=${SETTINGS_NAMESPACE})`,
+        `[notification] 已装配：投影 notification + change feed 订阅 + pending + presence (ns=${SETTINGS_NAMESPACE})`,
       )
 
       return () => {
@@ -124,6 +140,14 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
         return false
       }
       pending.report(raw)
+      return true
+    },
+
+    reportPresence(raw) {
+      if (!presence.report(raw)) {
+        deps.logger.warn('[notification] 忽略形状非法的 presence 上报')
+        return false
+      }
       return true
     },
 
@@ -148,12 +172,16 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
 
     testNotify() {
       try {
+        // tag 必须唯一：Windows 会静默吞掉短时间内同 tag 的后续通知（本项目血泪之一）。
+        // 只靠 Date.now() 不够——同一毫秒内连点两次会得到相同 tag（E2E 抓到的真实缺陷），
+        // 故再挂一个单调序号，保证"连点多少次都能看到"。
+        testSequence += 1
         deps.notify.notify({
           title: '任务通知测试',
           body: '看到这条托盘通知，说明「模块 → 投递端 → 托盘 → 系统」整条链路已打通。',
-          // tag 唯一：Windows 会静默吞掉短时间内同 tag 的后续通知（本项目血泪之一），
-          // 测试通知必须每次都是新 tag，否则连点两次第二次看不到。
-          tag: `dsh-notification-test-${Date.now()}`,
+          tag: `dsh-notification-test-${Date.now()}-${testSequence}`,
+          // 测试通知也遵守"需要手动关闭"设置：用户开了它就该在测试里看到常驻效果
+          persistent: scope?.get().requireInteraction === true,
         })
         deps.logger.info('[notification] 测试通知已交投递端（来源：设置卡片「发送测试通知」）')
         return true

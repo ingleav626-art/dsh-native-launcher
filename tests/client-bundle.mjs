@@ -61,8 +61,12 @@ function createEnv(options = {}) {
   const sections = []
   const injectedSlots = []
   const storeSubs = { list: [], pending: [] }
-  const sessionsState = { ids: [], byId: {} }
+  const sessionsState = { ids: [], byId: {}, current: undefined }
   const pendingState = new Map()
+  /** 事件监听器（测试可主动触发：页面可见性/焦点变化正是存在态传感器的输入）。 */
+  const listeners = { window: {}, document: {} }
+  const on = (scope, type, fn) => { (listeners[scope][type] ??= []).push(fn) }
+  const fire = (scope, type) => { for (const fn of listeners[scope][type] ?? []) fn() }
 
   const element = tag => ({
     tag,
@@ -82,10 +86,12 @@ function createEnv(options = {}) {
     head: element('head'),
     body: element('body'),
     hidden: false,
+    // 见 presence.ts 的 readPresence：可见性 = !hidden && hasFocus()（真机语义）
+    hasFocus: () => true,
     createElement: element,
     createTextNode: text => ({ text }),
     getElementById: () => null,
-    addEventListener() {},
+    addEventListener: (type, fn) => on('document', type, fn),
     querySelectorAll: () => [],
   }
 
@@ -94,7 +100,7 @@ function createEnv(options = {}) {
     __loaded: null,
     location: { origin: 'http://127.0.0.1:3080' },
     localStorage: { getItem: () => null, setItem() {} },
-    addEventListener() {},
+    addEventListener: (type, fn) => on('window', type, fn),
   }
 
   const rpc = {
@@ -141,6 +147,7 @@ function createEnv(options = {}) {
     rpcCalls,
     fetched,
     consoleCalls,
+    fire,
     sections,
     injectedSlots,
     storeSubs,
@@ -249,6 +256,12 @@ await step('步骤 2｜装配：两节卡片 + 在线心跳 + 图标 + 日志只
     assert.equal(logged[0].payload.kind, 'info')
     assert.match(String(logged[0].payload.message), /client 已启动/)
     assert.equal(typeof logged[0].payload.t, 'number', '事件必须带时间戳（host 侧只加行首时间）')
+
+    // 存在态上报：`backgroundOnly`（"任务不在眼前才通知"）的判定输入只有浏览器知道——
+    // 页面是否在前台 + 正在看哪个会话。少了它这个开关就是摆设（2026-09-11 用户实测"人在页面前也弹"）
+    const presence = env.rpcCalls.filter(call => call.endpoint === 'presence-report')
+    assert.ok(presence.length >= 1, 'client 启动必须上报一次存在态（否则 backgroundOnly 失效）')
+    assert.equal(typeof presence[0].payload.visible, 'boolean', 'visible 必须是布尔（host 侧形状守卫）')
 
     // 反向断言：console 一条都不许有（client 日志唯一出口是 host 日志）
     assertNoConsole(env)
@@ -361,6 +374,37 @@ await step('步骤 7｜模块未启用（notification.get 失败）时，卡片�
     assert.doesNotThrow(() => moduleExports.apply(env.ctx))
     await flush()
     assert.ok(env.sections.some(item => item.descriptor.id === 'native-notification'), '卡片仍注册，由卡片自身显示"未启用"')
+  })
+})
+
+await step('步骤 8｜存在态传感器：切会话/失焦要重报，状态没变不重发（backgroundOnly 的输入）', async () => {
+  const env = createEnv()
+  await withBundle(env, async (loaded, moduleExports) => {
+    moduleExports.apply(env.ctx)
+    await flush()
+    const presence = () => env.rpcCalls.filter(call => call.endpoint === 'presence-report')
+
+    assert.equal(presence().length, 1, '启动时上报一次')
+    assert.equal(presence()[0].payload.visible, true, 'document 有焦点且未隐藏 → visible=true')
+
+    // 切换当前会话 → 必须重报（host 才能知道"正在看哪个会话"）
+    env.sessionsState.current = 's-active'
+    for (const notify of env.storeSubs.list) notify()
+    await flush()
+    assert.equal(presence().length, 2, '会话切换要重报')
+    assert.equal(presence()[1].payload.activeSessionId, 's-active')
+
+    // 状态没变 → 不重发（页面事件很密集，去重是硬要求）
+    for (const notify of env.storeSubs.list) notify()
+    await flush()
+    assert.equal(presence().length, 2, '状态未变不得重发')
+
+    // 页面切到后台（visibilitychange）→ visible=false，host 据此恢复通知
+    env.document.hidden = true
+    env.fire('document', 'visibilitychange')
+    await flush()
+    assert.equal(presence().length, 3, '可见性变化要重报')
+    assert.equal(presence()[2].payload.visible, false, 'hidden=true → visible=false')
   })
 })
 

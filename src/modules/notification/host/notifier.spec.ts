@@ -3,11 +3,15 @@
  * 断言都落在**可观察结果**上（端口收到的载荷 / 记下的失败），不使用 mock 调用计数断言。
  */
 import { describe, expect, it } from 'vitest'
+import { testSettings } from '../shared/fixtures.ts'
 import type { TrayNotification } from '../shared/types.ts'
 import { createNotifier, type NotifierDeps } from './notifier.ts'
 
 /** 端口替身：记录载荷（外部边界换成记录器，链路上的逻辑全部走真实实现）。 */
-function fakeDeps(failWith?: string): { deps: NotifierDeps; delivered: TrayNotification[]; failures: string[] } {
+function fakeDeps(
+  failWith?: string,
+  settings = testSettings(),
+): { deps: NotifierDeps; delivered: TrayNotification[]; failures: string[] } {
   const delivered: TrayNotification[] = []
   const failures: string[] = []
   return {
@@ -20,6 +24,7 @@ function fakeDeps(failWith?: string): { deps: NotifierDeps; delivered: TrayNotif
           delivered.push(notification)
         },
       },
+      settings: () => settings,
       logger: { info: () => {}, warn: () => {}, fail: (message) => { failures.push(message) } },
     },
   }
@@ -70,6 +75,22 @@ describe('createNotifier.deliverPending', () => {
 })
 
 describe('createNotifier 的健壮性', () => {
+  it('requireInteraction=true → 载荷带 persistent（托盘据此常驻呈现，上游语义补回）', () => {
+    const { deps, delivered } = fakeDeps(undefined, testSettings({ requireInteraction: true }))
+    const notifier = createNotifier(deps)
+    notifier.deliverCompletion('s1', completion)
+    notifier.deliverPending('s1', pending)
+    expect(delivered.map(item => item.persistent)).toEqual([true, true])
+  })
+
+  it('requireInteraction=false（默认）→ 载荷不带 persistent（与上游逐字一致，无噪声字段）', () => {
+    const { deps, delivered } = fakeDeps()
+    const notifier = createNotifier(deps)
+    notifier.deliverCompletion('s1', completion)
+    expect(delivered[0]).toEqual({ title: '任务完成', body: 'done', tag: 'dsh-notification-s1-1' })
+    expect('persistent' in (delivered[0] ?? {})).toBe(false)
+  })
+
   it('投递端口抛错时被隔离（不向决策链抛出，且记下失败）', () => {
     const { deps, failures } = fakeDeps('托盘不可用')
     const notifier = createNotifier(deps)

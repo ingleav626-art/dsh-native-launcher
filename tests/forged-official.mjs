@@ -391,12 +391,44 @@ await step('步骤 12｜测试通知（设置卡片按钮）：走真实投递�
   assert.equal(delivered.length, before + 1, '测试通知必须真的走投递端（而不是只回个 ok）')
   const first = delivered.at(-1)
   assert.equal(first.title, '任务通知测试')
-  assert.match(first.tag, /^dsh-notification-test-\d+$/, 'tag 必须唯一——同 tag 会被系统静默吞掉（连点第二次就看不到）')
+  assert.match(first.tag, /^dsh-notification-test-\d+-\d+$/, 'tag 必须唯一——同 tag 会被系统静默吞掉（连点第二次就看不到）')
   const raw = JSON.parse(readFileSync(trayFile, 'utf8'))
   assert.equal(raw.title, first.title, '测试通知同样要落进文件契约（托盘只读文件）')
   // 连点第二次：tag 必须不同（否则用户会以为按钮坏了）
   instance.testNotify()
   assert.notEqual(delivered.at(-1).tag, first.tag, '两次测试通知的 tag 不得相同')
+})
+
+await step('步骤 13｜backgroundOnly：任务就在眼前时不打扰，切走/失焦照常通知', () => {
+  // 这是 host 唯一拿不到的判定输入（是否前台 + 正在看哪个会话），由启动器薄传感器上报
+  assert.equal(instance.reportPresence({ visible: true, activeSessionId: 'live' }), true, '合法存在态应被接受')
+  assert.equal(instance.reportPresence({ visible: 'yes' }), false, '形状非法应被拒绝（跨进程输入不可信）')
+
+  const before = delivered.length
+  live.append('turn/start', { turn: 7 })
+  live.append('assistant/message', { turn: 7, message: { content: [{ type: 'text', text: '眼前完成的' }] } })
+  live.append('turn/end', { turn: 7, reason: { kind: 'completed' } })
+  assert.equal(delivered.length, before, '页面在前台且正在看该会话 → 不该投递')
+  assert.ok(transcript.some(l => l.includes('backgroundOnly')), '抑制必须留痕（否则用户以为通知坏了）')
+
+  // 页面不在眼前（失焦/切走）→ 下一个 turn 必须通知
+  instance.reportPresence({ visible: false })
+  live.append('turn/start', { turn: 8 })
+  live.append('assistant/message', { turn: 8, message: { content: [{ type: 'text', text: '切走后完成的' }] } })
+  live.append('turn/end', { turn: 8, reason: { kind: 'completed' } })
+  assert.equal(delivered.length, before + 1, '页面不在眼前 → 照常投递')
+  assert.equal(delivered.at(-1).body, '切走后完成的')
+})
+
+await step('步骤 14｜requireInteraction（"需要手动关闭"）→ 托盘文件带 persistent', async () => {
+  await instance.updateSettings({ requireInteraction: true })
+  instance.testNotify()
+  const on = JSON.parse(readFileSync(trayFile, 'utf8'))
+  assert.equal(on.persistent, true, '开启后托盘必须收到 persistent=true（托盘据此用 scenario="reminder" 常驻呈现）')
+  await instance.updateSettings({ requireInteraction: false })
+  instance.testNotify()
+  const off = JSON.parse(readFileSync(trayFile, 'utf8'))
+  assert.equal(off.persistent, false, '关闭后回到系统默认时长')
 })
 
 // 收尾：卸载 + 清理

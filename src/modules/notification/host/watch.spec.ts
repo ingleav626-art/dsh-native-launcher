@@ -7,6 +7,7 @@ import { testSettings } from '../shared/fixtures.ts'
 import type { NotificationProjectionValue, NotificationSettings, TrayNotification } from '../shared/types.ts'
 import { createNotifier } from './notifier.ts'
 import type { LoggerPort, ProjectionPort, SessionIdentityLike, SessionSummaryLike, SessionsPort } from './ports.ts'
+import { createPresenceTracker } from './presence.ts'
 import { createWatcher, type WatchDeps } from './watch.ts'
 
 const silentLogger: LoggerPort = { info: () => {}, warn: () => {}, fail: () => {} }
@@ -50,11 +51,13 @@ function setup(options: {
   const delivered: TrayNotification[] = []
   const snapshots = options.snapshots ?? new Map<string, NotificationProjectionValue>()
   const projections = fakeProjections(snapshots)
-  const notifier = createNotifier({ notify: { notify: n => { delivered.push(n) } }, logger: silentLogger })
+  const notifier = createNotifier({ notify: { notify: n => { delivered.push(n) } }, logger: silentLogger, settings: () => testSettings() })
   const deps: WatchDeps = {
     projections: projections.port,
     sessions: fakeSessions(options.sessions),
     settings: () => options.settings ?? testSettings(),
+    // 未上报存在态 → 不抑制（真机"页面全关"场景）
+    presence: createPresenceTracker(),
     notifier,
     logger: silentLogger,
   }
@@ -92,11 +95,12 @@ describe('createWatcher', () => {
     const lines: string[] = []
     const snapshots = new Map<string, NotificationProjectionValue>([['s1', completed(1)]])
     const projections = fakeProjections(snapshots)
-    const notifier = createNotifier({ notify: { notify: () => {} }, logger: silentLogger })
+    const notifier = createNotifier({ notify: { notify: () => {} }, logger: silentLogger, settings: () => testSettings() })
     const watcher = createWatcher({
       projections: projections.port,
       sessions: fakeSessions([{ id: 's1', title: 'Deploy' }]),
       settings: () => testSettings(),
+      presence: createPresenceTracker(),
       notifier,
       logger: { info: message => { lines.push(message) }, warn: () => {}, fail: () => {} },
     })
@@ -109,6 +113,47 @@ describe('createWatcher', () => {
     expect(stale).toHaveLength(1)
     expect(stale[0]).toContain('turn 1')
     expect(stale[0]).toContain('session=s1')
+  })
+
+  it('backgroundOnly：页面在前台且正在看这个会话 → 不投递并留痕（人在眼前不该打扰）', () => {
+    const lines: string[] = []
+    const snapshots = new Map<string, NotificationProjectionValue>([['s1', completed(1)]])
+    const projections = fakeProjections(snapshots)
+    const presence = createPresenceTracker()
+    presence.report({ visible: true, activeSessionId: 's1' })
+    const delivered: TrayNotification[] = []
+    const watcher = createWatcher({
+      projections: projections.port,
+      sessions: fakeSessions([{ id: 's1', title: 'Deploy' }]),
+      settings: () => testSettings({ backgroundOnly: true }),
+      presence,
+      notifier: createNotifier({ notify: { notify: n => { delivered.push(n) } }, logger: silentLogger, settings: () => testSettings() }),
+      logger: { info: message => { lines.push(message) }, warn: () => {}, fail: () => {} },
+    })
+    watcher.start()
+    snapshots.set('s1', completed(2, 'all green'))
+    projections.emit({ id: 's1' }, completed(2, 'all green'))
+    expect(delivered).toHaveLength(0)
+    expect(lines.some(line => line.includes('backgroundOnly'))).toBe(true)
+  })
+
+  it('backgroundOnly：页面在后台 → 照常投递（切走了就该提醒）', () => {
+    const snapshots = new Map<string, NotificationProjectionValue>([['s1', completed(1)]])
+    const projections = fakeProjections(snapshots)
+    const presence = createPresenceTracker()
+    presence.report({ visible: false, activeSessionId: 's1' })
+    const delivered: TrayNotification[] = []
+    const watcher = createWatcher({
+      projections: projections.port,
+      sessions: fakeSessions([{ id: 's1', title: 'Deploy' }]),
+      settings: () => testSettings({ backgroundOnly: true }),
+      presence,
+      notifier: createNotifier({ notify: { notify: n => { delivered.push(n) } }, logger: silentLogger, settings: () => testSettings() }),
+      logger: silentLogger,
+    })
+    watcher.start()
+    projections.emit({ id: 's1' }, completed(2, 'all green'))
+    expect(delivered).toHaveLength(1)
   })
 
   it('非本模块的投影键被忽略', () => {
@@ -145,11 +190,12 @@ describe('createWatcher', () => {
     const rows: SessionSummaryLike[] = [{ id: 's1', title: 'Deploy' }]
     const delivered: TrayNotification[] = []
     const projections = fakeProjections(snapshots)
-    const notifier = createNotifier({ notify: { notify: n => { delivered.push(n) } }, logger: silentLogger })
+    const notifier = createNotifier({ notify: { notify: n => { delivered.push(n) } }, logger: silentLogger, settings: () => testSettings() })
     const watcher = createWatcher({
       projections: projections.port,
       sessions: { list: () => [...rows], get: id => rows.find(row => row.id === id) },
       settings: () => testSettings(),
+      presence: createPresenceTracker(),
       notifier,
       logger: silentLogger,
     })

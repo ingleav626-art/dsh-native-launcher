@@ -8,13 +8,15 @@
  * 本文件不碰任何存储：`tray-notify.json` 的唯一写者是启动器投递端（端口背后）。
  */
 import { bodyText, pendingTitleFor, titleFor } from '../shared/labels.ts'
-import type { NotificationPlan, PendingNotificationPlan, TrayNotification } from '../shared/types.ts'
+import type { NotificationPlan, NotificationSettings, PendingNotificationPlan, TrayNotification } from '../shared/types.ts'
 import type { LoggerPort, NotifyPort } from './ports.ts'
 
 /** 投递编排的依赖（端口注入，测试可直接换 fake）。 */
 export interface NotifierDeps {
   readonly notify: NotifyPort
   readonly logger: LoggerPort
+  /** 读当前设置：`requireInteraction`（"需要手动关闭"）在投递时转成托盘的常驻呈现。 */
+  readonly settings: () => NotificationSettings
 }
 
 /** 投递编排选项。 */
@@ -59,6 +61,23 @@ export function createNotifier(deps: NotifierDeps, options: NotifierOptions = {}
     return true
   }
 
+  /**
+   * 「需要手动关闭」（上游 requireInteraction）→ 托盘常驻呈现（scenario=reminder）。
+   * 只在**开启时**挂这个字段：默认载荷保持与上游逐字一致（少一个恒为 false 的噪声字段），
+   * 读设置失败一律按 false（宁可按系统默认时长消失，也不要让投递整条挂掉）。
+   */
+  const persistent = (): boolean => {
+    try {
+      return deps.settings().requireInteraction === true
+    } catch {
+      return false
+    }
+  }
+
+  /** 组装载荷：persistent 仅在开启时出现。 */
+  const payload = (title: string, body: string, tag: string): TrayNotification =>
+    persistent() ? { title, body, tag, persistent: true } : { title, body, tag }
+
   const send = (notification: TrayNotification): void => {
     try {
       deps.notify.notify(notification)
@@ -71,15 +90,19 @@ export function createNotifier(deps: NotifierDeps, options: NotifierOptions = {}
   return {
     deliverCompletion(sessionId, plan) {
       if (!remember(plan.tag, sessionId)) return false
-      send({ title: titleFor(plan.reason), body: bodyText(plan.body, emptyBody), tag: plan.tag })
-      deps.logger.info(`[notify] 完成通知 reason=${plan.reason} tag=${plan.tag}`)
+      const body = bodyText(plan.body, emptyBody)
+      send(payload(titleFor(plan.reason), body, plan.tag))
+      // 正文一并留痕（有界）：排查"这条通知属于哪一轮/内容对不对"只看日志即可——
+      // 用户 2026-09-11 报"继续任务时收到上一次的结束通知"，就是缺这条对齐信息
+      deps.logger.info(`[notify] 完成通知 reason=${plan.reason} tag=${plan.tag} body=${body.slice(0, 60)}`)
       return true
     },
 
     deliverPending(sessionId, plan) {
       if (!remember(plan.tag, sessionId)) return false
-      send({ title: pendingTitleFor(plan.kind), body: bodyText(plan.body, emptyBody), tag: plan.tag })
-      deps.logger.info(`[notify] 等待通知 kind=${plan.kind} tag=${plan.tag}`)
+      const body = bodyText(plan.body, emptyBody)
+      send(payload(pendingTitleFor(plan.kind), body, plan.tag))
+      deps.logger.info(`[notify] 等待通知 kind=${plan.kind} tag=${plan.tag} body=${body.slice(0, 60)}`)
       return true
     },
 
