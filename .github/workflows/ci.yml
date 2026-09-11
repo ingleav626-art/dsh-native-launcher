@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    paths: ['src/**', 'tests/**', 'tools/build.mjs', 'package.json', 'tsconfig.json']
+  pull_request:
+    paths: ['src/**', 'tests/**']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build

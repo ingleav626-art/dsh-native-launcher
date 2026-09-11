@@ -4,6 +4,11 @@
   "description": "dsh plugin (Windows): desktop shortcut that launches dsh web silently (hidden console) and auto-opens the browser; port-aware reconnect; settings UI section; tray with native toast notifications and close-to-exit semantics.",
   "type": "module",
   "main": "./lib/index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "build": "node tools/build.mjs"
+  },
   "files": [
     "lib",
     "assets",
@@ -44,5 +49,11 @@
     "native",
     "zero-dependency",
     "plugin"
-  ]
+  ],
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
 }
