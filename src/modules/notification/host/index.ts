@@ -45,6 +45,9 @@ export interface NotificationModule {
 /** 投影正文缺省预算（与上游 `Config` 默认一致）。 */
 const DEFAULT_MAX_BODY_CHARS = 400
 
+// 模块自述再导出：容器需要在 `create()` 之前读到 id / apiVersion 做护栏与开关判断
+export { manifest } from '../manifest.ts'
+
 /**
  * 创建通知模块。
  * @param deps - 端口注入集合。

@@ -5,8 +5,16 @@
  * 绝不让一个旧模块把本体炸掉。
  */
 
-/** 容器当前内核 API 版本；不兼容变更时递增，旧模块随之被拒载。 */
-export const CORE_API_VERSION = 1
+/**
+ * 容器当前内核 API 版本；不兼容变更时递增，旧模块随之被拒载。
+ *
+ * - v1：模块以 `apply(ctx, core)` 形式被调用（模块可见官方 ctx 与 core 对象）
+ * - **v2（2026-09-11）**：模块改为**工厂 + 依赖注入**——`create(ports) → { start() }`，
+ *   端口形状见各模块 `host/ports.ts`。模块不再接触 ctx/core（"ctx 只在组装根被触摸"）。
+ *   此变更即 P1 通知 v2 的架构落地。
+ *   ⚠️ 本常量与手写的 `lib/module-registry.js` 各有一份，P2 本体 TS 化时合并为单一事实源。
+ */
+export const CORE_API_VERSION = 2
 
 /** 模块自述：`apply` 之前的静态清单项（无副作用，可被容器先行校验）。 */
 export interface ModuleManifest {

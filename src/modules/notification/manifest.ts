@@ -6,7 +6,9 @@
 import { CORE_API_VERSION, type ModuleManifest } from '../registry.ts'
 
 export const manifest: ModuleManifest = {
-  id: 'notification',
+  // id 取复数，与既有用户配置项 `modules.notifications`（launcher settings schema）保持一致——
+  // 改 id 会让老用户的开关失效。目录/包名用单数 notification（拆包后为 dsh-native-notification）。
+  id: 'notifications',
   apiVersion: CORE_API_VERSION,
   defaultEnabled: true,
   description: '任务完成 / 等待交互的通知决策，经启动器投递端弹托盘 Toast',
