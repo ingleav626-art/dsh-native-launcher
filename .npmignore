@@ -1,0 +1,12 @@
+# npm 打包忽略规则。
+#
+# 为什么需要这个文件：package.json 的 `files` 白名单包含 `tools/`，而**白名单目录内的文件
+# 不再受 .gitignore 过滤**——于是本地对账产物（compare-result-*.txt，每次跑 compare 都会重建）
+# 会随包发出去（实测：v0.3.5 之后的包体里混进了 ~85KB 对账报告）。
+# 两种写法都留着：实测 .npmignore 对 `files` 白名单目录内的文件不生效，
+# 真正起作用的是 package.json `files` 里的取反模式（`!tools/compare-result-*.txt`）。
+tools/compare-result-*.txt
+compare-result-*.txt
+
+# 本地工作/记忆目录（双保险：files 白名单本就不含它们）
+.workbuddy/
