@@ -140,4 +140,14 @@ describe('createWatcher', () => {
     expect(notifier.rememberedCount()).toBe(0)
     stop()
   })
+
+  it('回归（E2E 抓到）：订阅后新出现的会话，首个完成 turn 必须通知', () => {
+    // 主场景：页面开着 → 新建会话 → 跑第一个任务。change feed 首次见到该会话就是
+    // 它首个 turn/end；若按「首见播种」处理，这个完成永远不弹（第二个任务才弹）。
+    const { delivered, projections, watcher } = setup({ sessions: [] })
+    watcher.start()
+    expect(delivered).toHaveLength(0)
+    projections.emit({ id: 'new-1' }, completed(1, '第一个任务的回复'))
+    expect(delivered).toEqual([{ title: '任务完成', body: '第一个任务的回复', tag: 'dsh-notification-new-1-1' }])
+  })
 })

@@ -18,3 +18,5 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+      # 端到端自测针对构建产物（伪造官方 API，无需 dsh 环境），必须在 build 之后
+      - run: npm run test:e2e
