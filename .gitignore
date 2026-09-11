@@ -5,4 +5,8 @@ node_modules/
 
 # 本地工作文档（不入库）
 RELEASE_NOTES_0.3.0.md
+RELEASE_NOTES_0.3.5.md
 dev-notes.md
+
+# 本地记忆/工作目录（不入库）
+.workbuddy/

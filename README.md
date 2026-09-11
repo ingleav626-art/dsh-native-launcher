@@ -153,7 +153,14 @@ npm uninstall -g @deepseek-ai/dsh    # 移除 dsh 服务端
 
 ## 版本状态
 
-### v0.3.3（当前）—— DSH 原生依赖收敛 + 通知可靠性修复
+### v0.3.5 —— dsh 0.1.5-rc.2 适配
+
+- **设置页 RPC 兜底桥**：0.1.5-rc.x 官方 connection 服务存在回归（`connection.rpc.handle` 注册即抛 `cannot get property "webServer" without inject`），设置页读配置/保存/一键卸载全部失效。插件改为双通道注册——主通道失败时自动经 `webServer.register` 自桥接（对齐官方 wire 协议，鉴权复用 `connection.requestRejection`），client 端零改动；官方修复后自动切回主通道
+- **冷启动自动开页面修复**：0.1.2 起 WebUI 带 token 鉴权，裸探测 `GET /` 永远 401，导致自动开页面白等 15s（"要点两次才开"）。探测改用 apply 时落盘的带 token URL，真 2xx 才开页面（实测 2.7s 弹出）
+- **清理**：移除 `dsh.client.inject` 中已停止发布的 `@deepseek-ai/dsh-client-runtime`（0.1.2 起官方不再发布该包，插件早已内置 mini store 不再依赖）
+- 已知项：0.1.5 上任务通知的实时投影通道待上游 dsh-notification 适配（`no-projection` 日志为其表现，托盘兜底通知不受影响）
+
+### v0.3.3 —— DSH 原生依赖收敛 + 通知可靠性修复
 
 - **设置页完整表单**：全部配置项可视化调配（官方 settings 卡片渲染、保存持久化），含模块开关组；生成物类改动保存后自动重建 + 托盘热重启
 - **一键卸载**：自绘确认框（可选清除个性化配置）；停止托盘、删快捷方式、清生成物与注册表、profile 自移除、6 秒自动停服；独立审计日志 `uninstall.log`

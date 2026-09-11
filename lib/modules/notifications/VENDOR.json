@@ -6,7 +6,10 @@
   "integratedIn": "pre-0.2.x",
   "files": {
     "vendor/notification-host.js": "上游打包产物（host 半区，逐字节保留）",
-    "adapter.js": "我们的集成胶水：元数据声明 + 入口包装"
+    "host.js": "我们的集成胶水（adapter）：legacy schema/view → stateSchema/wire 无损映射 + 注册包装"
   },
-  "notes": "client 半区随 lib/client.js 打包产物分发（dsh 固定加载 /plugins/<id>/client.js）。确认上游仓库后补 upstream/pinnedVersion。"
+  "notes": "client 半区随 lib/client.js 打包产物分发（dsh 固定加载 /plugins/<id>/client.js）。确认上游仓库后补 upstream/pinnedVersion。",
+  "knownIssues": [
+    "0.1.5：投影注册成功但快照缺 key（no-projection 刷屏）。官方 0.1.5 契约：注册是随调用方 fiber 生死的 effect（'Registration is an effect (disposer rides the calling fiber)'），官方保活姿势为 ctx.inject(['sessionProjections'], ...)；我们的 ctx.extend 包装注册在该语义下 key 不进快照。归上游/后续 vendored 适配，本体不受影响（铁律 1）。"
+  ]
 }
