@@ -12,7 +12,8 @@
  */
 import { build } from 'esbuild'
 
-const dshExternal = ['@deepseek-ai/cordis', '@deepseek-ai/dsh-*']
+// 官方包一律 external：由 profile 的 node_modules 提供（schemastery 是唯一被模块直接 import 的官方运行时依赖）
+const dshExternal = ['@deepseek-ai/*']
 
 // client 产物线格式：dsh client loader 的工厂握手（与上游 build.mjs 实证一致）
 const CLIENT_WRAP = {
@@ -24,8 +25,9 @@ const CLIENT_WRAP = {
 
 // [入口, 产物, 格式, 平台, 额外选项]
 const ENTRIES = [
-  // P1 起填入，例如：
-  // ['src/host/notifications/index.ts', 'lib/modules/notifications/index.js', 'esm', 'node'],
+  // P1：通知模块 host 半区（启动器本体仍为手写，P2 接管）
+  ['src/modules/notification/host/index.ts', 'lib/modules/notification/index.js', 'esm', 'node', { sourcemap: false }],
+  // P3 起：启动器 host 整体接管 + client 产物（届时处理双 load 合并体）
 ]
 
 let built = 0
@@ -37,7 +39,7 @@ for (const [entry, outfile, format, platform, extra = {}] of ENTRIES) {
     format,
     platform,
     target: platform === 'node' ? ['node22'] : ['es2022'],
-    sourcemap: true,
+    sourcemap: false,
     external: dshExternal,
     logLevel: 'info',
     ...extra,
