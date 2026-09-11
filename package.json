@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "test:e2e": "node tests/forged-official.mjs",
+    "test:e2e": "node tests/forged-official.mjs && node tests/client-bundle.mjs",
     "build": "node tools/build.mjs"
   },
   "files": [

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    paths: ['src/**', 'tests/**', 'tools/build.mjs', 'package.json', 'tsconfig.json']
+    paths: ['src/**', 'tests/**', 'tools/build.mjs', 'vitest.config.ts', 'package.json', 'tsconfig.json']
   pull_request:
     paths: ['src/**', 'tests/**']
 
