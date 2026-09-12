@@ -16,7 +16,7 @@ import { logsDirOf } from '../core/paths.ts';
  * 托盘启动时把此版本写入 launcherDir/tray-version.txt，
  * apply 对比版本，旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
  */
-export const TRAY_SCRIPT_VERSION = 18;
+export const TRAY_SCRIPT_VERSION = 19;
 
 /** 生成托盘脚本（PowerShell + WinForms NotifyIcon，系统自带零依赖；单实例互斥 + 两项菜单 + 任务通知气泡）。
  *  appId：已装 PWA 的应用 id（可选）——"退出 WebUI"用它精确关闭本站应用窗口；
@@ -228,15 +228,17 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     `$trayNotifyLog = '${join(logsDirOf(launcherDir), 'tray-notify.log').replace(/'/g, "''")}'`,
     `$webuiUrlFile = '${join(launcherDir, 'webui-url.txt').replace(/'/g, "''")}'`,
     `# ==== E2E-EXTRACT-START（行为测试提取段：变量 + PWA 枚举 + Get-ToastLaunchTarget。`,
-    `#      提取后配 Log-Notify stub 独立执行——文本断言抓不到的作用域/插值/异常吞段，`,
-    `#      只有用真执行才暴露，2026-09-12 三重失效的教训） ====`,
+    `#      提取后只替换日志输出边界为 stdout 独立执行——铁律见 AGENTS.md 测试原则三：`,
+    `#      被测链路上的函数禁止 mock；段内调用的函数必须已在段前真实定义。`,
+    `#      2026-09-12 v18 教训：臆造的 Log-Notify 调用让真机托盘 fatal 三连死，`,
+    `#      而 stub 前置的 E2E 依然全绿——测了假脚本） ====`,
     `# PWA 的 AppsFolder 真实项名：启动时枚举一次（127.0.0.1-<hash>_<appId>!App 形式——`,
     `# 注意不能拿裸 appId 拼 '<appId>!App'，那是 UWP 打包应用格式，对 Edge/Chrome 非打包`,
     `# PWA 无效，ShellExecute 静默失败 → 点击通知无反应，真机实锤 2026-09-12）。`,
     `# 与 open-webui.ps1 拉起 PWA 的枚举同源同款。顶层变量：函数内可见（PowerShell 父作用域）。`,
     `$pwaLaunch = $null`,
     `try { $apps = @((New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Path -like '127.0.0.1-*' -or $_.Path -like 'localhost-*' }); if ($apps.Count -gt 0) { $pwaLaunch = $apps[0].Path } } catch { }`,
-    `if ($pwaLaunch) { Log-Notify ('pwa app found: ' + $pwaLaunch) } else { Log-Notify 'pwa app not found (toast launch will use token URL)' }`,
+    `if ($pwaLaunch) { Log-Exit ('pwa app found: ' + $pwaLaunch) } else { Log-Exit 'pwa app not found (toast launch will use token URL)' }`,
     'function Get-ToastLaunchTarget {',
     `  # 点击卡片回 DeepSeek 的跳转目标（零注册表——不碰系统默认程序，不触发杀软）：`,
     `  # 已装 PWA → shell:AppsFolder\\<真实项名>（官方应用激活，已运行聚焦 / 未运行打开）；`,

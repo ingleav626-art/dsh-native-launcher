@@ -294,6 +294,11 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
     assert.ok(!tray.includes('+ \'!App\''), 'tray.ps1 出现 UWP 式 !App 拼接（对非打包 PWA 无效）')
     assert.ok(!tray.includes('${String(port)'), 'tray.ps1 出现未插值的 ${String(port)} 字面量（模板用了双引号——[System.Uri] 会抛异常吞掉 launch 段，真机实锤 2026-09-12）')
     assert.ok(tray.includes('$pwaLaunch'), 'tray.ps1 缺顶层 PWA 枚举变量（Show-TrayToast 内的 $appId 是函数局部值，不可见）')
+    // launch 计算必须是「调 Get-ToastLaunchTarget」而非函数体内联展开——内联写法会
+    // 重新引入作用域/插值类 bug（v17 的 $appId 局部值 + 占位符字面量都是内联期引入的）
+    const toastBody = (tray.split('function Show-TrayToast')[1] ?? '').split(/\nfunction /)[0] ?? ''
+    assert.ok(toastBody.includes('Get-ToastLaunchTarget'), 'Show-TrayToast 必须调用 Get-ToastLaunchTarget（launch 计算单点化，防内联回潮）')
+    assert.ok(!toastBody.includes('$appId'), 'Show-TrayToast 体内引用了 $appId——函数局部值恒空（v16/v17 真机 fatal 根因）')
     assert.ok(tray.includes('[toast] launch='), 'tray.ps1 缺 launch 值日志留痕')
     assert.ok(tray.includes('AppUserModelId\\DshNativeLauncher'), 'tray.ps1 缺 AUMID 注册')
     assert.ok(tray.includes("Classes\\dsh-webui'"), 'tray.ps1 缺 v13 协议残留清理行')
@@ -341,8 +346,17 @@ await step('步骤 -1d｜tray.ps1 launch 目标行为测试：Get-ToastLaunchTar
   const tray = readFileSync(join(dir, 'tray.ps1'), 'utf8')
   const m = tray.match(/# ==== E2E-EXTRACT-START[\s\S]*?# ==== E2E-EXTRACT-END ====/)
   assert.ok(m, 'tray.ps1 缺 E2E-EXTRACT 标记段（行为测试无法提取）')
+  // 顺序依赖守卫（v18 真机 fatal 实锤：提取段调用了不存在的 Log-Notify → 托盘
+  // 顺序执行 fatal 三连死，而本测试前置 stub 喂活了它——测了个假脚本）。铁律：
+  // 提取段调用的每个 Log-* 函数，必须已在「脚本开头到提取段」之间有 function 定义
+  //（真实脚本顺序执行到提取段时它们必须已存在）。
+  const beforeExtract = tray.slice(0, tray.indexOf('E2E-EXTRACT-START'))
+  const calledFns = [...new Set([...m[0].matchAll(/\b(Log-[A-Za-z]+)\s*\(/g)].map((x) => x[1]))]
+  for (const fn of calledFns) {
+    assert.ok(beforeExtract.includes(`function ${fn}`), `提取段调用的 ${fn} 未在段前定义——PS 顺序执行到这里会 fatal（臆造函数或定义顺序回归）`)
+  }
   const script = [
-    "function Log-Notify([string]$m) { Write-Output ('[ln] ' + $m) }",
+    "function Log-Exit([string]$m) { Write-Output ('[le] ' + $m) }",
     m[0],
     "Write-Output ('BRANCH1=' + (Get-ToastLaunchTarget))",
     '$pwaLaunch = $null',
