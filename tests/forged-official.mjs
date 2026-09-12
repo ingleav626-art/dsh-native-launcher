@@ -302,6 +302,34 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
     assert.ok(tray.includes('[toast] launch='), 'tray.ps1 缺 launch 值日志留痕')
     assert.ok(tray.includes('AppUserModelId\\DshNativeLauncher'), 'tray.ps1 缺 AUMID 注册')
     assert.ok(tray.includes("Classes\\dsh-webui'"), 'tray.ps1 缺 v13 协议残留清理行')
+    // 全文引用完整性守卫（v18 教训的终局闸）：臆造函数不是语法错误——Parser、文本断言
+    // 全放行，只有托盘运行时才 fatal（三连死）。做法 = 截掉主循环后 dot-source 真实执行
+    // 全部定义（规范二：用真实 PowerShell Get-Command 判定存在性，不靠文本对照），再对
+    // 全文每个 Verb-Noun 形态的调用名逐一验证——Get-Command 对自定义函数与内置 cmdlet
+    // 都能命中，唯独臆造名查不到。
+    {
+      const truncated = tray.slice(0, tray.indexOf('# ==== MAIN-LOOP-START'))
+      assert.ok(truncated.length > 200, 'MAIN-LOOP-START 标记缺失或位置异常')
+      // PS 无参调用不带括号（$x = Get-ToastLaunchTarget）——收集全部 Verb-Noun 形态
+      // 标识符（定义/调用/传参处），逐一 Get-Command 验证，宁多勿漏。
+      // 注释行跳过：文档性提及函数名不是调用。
+      const codeLines = tray.split('\n').filter((l) => !l.trim().startsWith('#'))
+      const called = [...new Set(codeLines.flatMap((l) => [...l.matchAll(/\b([A-Z][a-z]+-[A-Z][A-Za-z]+)\b/g)].map((x) => x[1])))]
+      assert.ok(called.includes('Get-ToastLaunchTarget'), '调用清单自检失败（正则没抓到调用）')
+      const checkScript = [
+        truncated,
+        ...called.map((fn) => `if (-not (Get-Command '${fn}' -ErrorAction SilentlyContinue)) { Write-Output ('MISSING=' + '${fn}') }`),
+        "Write-Output 'REFCHECK-DONE'",
+      ].join('\n')
+      const rp = join(scriptDir, 'ref-check.ps1')
+      writeFileSync(rp, checkScript, 'utf8')
+      const rr = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-File', rp], { encoding: 'utf8', timeout: 30000 })
+      const out = String(rr.stdout ?? '')
+      const missing = [...out.matchAll(/MISSING=(\S+)/g)].map((x) => x[1])
+      assert.equal(rr.status, 0, '截断版 tray.ps1 执行失败：' + String(rr.stderr ?? '').slice(0, 200))
+      assert.ok(out.includes('REFCHECK-DONE'), '引用校验未跑完：' + out.slice(0, 200))
+      assert.deepEqual(missing, [], `tray.ps1 调用了不存在的函数：${missing.join(', ')}（运行时 fatal，v18 同款）`)
+    }
   }
   for (const f of ['open-webui.ps1', 'tray.ps1']) {
     const p = join(scriptDir, f)
