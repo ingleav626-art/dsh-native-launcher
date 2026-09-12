@@ -60,7 +60,7 @@ export function registerLauncherSettings(
     if (ctx.settings) {
       const scope = ctx.settings.register<LauncherConfig>(SETTINGS_NAMESPACE, LAUNCHER_SETTINGS_SCHEMA, { base: config });
       const cfg: LauncherConfig = { ...config, ...scope.get() };
-      logMsg(`[settings] registered ns=${SETTINGS_NAMESPACE} (resolved: port=${cfg.port}, launchCommand=${JSON.stringify(cfg.launchCommand)}, tray=${cfg.tray !== false}, traySurvivesDsh=${cfg.traySurvivesDsh !== false}, modules=${JSON.stringify(cfg.modules)})`);
+      logMsg(`[settings] registered ns=${SETTINGS_NAMESPACE} (resolved: port=${cfg.port}, launchCommand=${JSON.stringify(cfg.launchCommand)}, tray=${cfg.tray !== false}, traySurvivesDsh=${cfg.traySurvivesDsh !== false}, autoOpen=${cfg.autoOpen !== false}, openMode=${cfg.openMode ?? 'app'}, autoStartBoot=${cfg.autoStartBoot === true}, force=${cfg.force === true}, modules=${JSON.stringify(cfg.modules)})`);
       scope.watch(() => logMsg('settings updated — restart dsh (double-click shortcut) to fully apply'));
       return { scope, cfg };
     }
