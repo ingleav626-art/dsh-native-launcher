@@ -16,7 +16,7 @@ import { logsDirOf } from '../core/paths.ts';
  * 托盘启动时把此版本写入 launcherDir/tray-version.txt，
  * apply 对比版本，旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
  */
-export const TRAY_SCRIPT_VERSION = 14;
+export const TRAY_SCRIPT_VERSION = 15;
 
 /** 生成托盘脚本（PowerShell + WinForms NotifyIcon，系统自带零依赖；单实例互斥 + 两项菜单 + 任务通知气泡）。
  *  appId：已装 PWA 的应用 id（可选）——"退出 WebUI"用它精确关闭本站应用窗口；
@@ -26,6 +26,16 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
   const logsDirInline = logsDirOf(launcherDir).replace(/'/g, "''");
   const exitLogInline = join(logsDirOf(launcherDir), 'tray-exit.log').replace(/'/g, "''");
   const pidFileInline = join(launcherDir, 'tray-pid.txt').replace(/'/g, "''");
+  // 点击 Toast 回 DeepSeek 的隐藏启动器：协议 command 直调 powershell 会闪控制台窗
+  // （窗口先创建、-WindowStyle 后生效，真机实测），wscript 启动零窗口——与 launcher.vbs 同款。
+  const openScript = openScriptPath || join(launcherDir, 'open-webui.ps1');
+  const toastVbs = [
+    `' 点击 Toast 回到 DeepSeek：wscript 隐藏窗口调用 open-webui.ps1（PWA 窗口优先 / 聚焦已有窗口）`,
+    'Set ws = CreateObject("WScript.Shell")',
+    `ws.Run "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""${openScript}""", 0, False`,
+  ].join('\r\n');
+  writeFileSync(join(launcherDir, 'toast-open.vbs'), toastVbs, 'utf-8');
+  const toastVbsInline = join(launcherDir, 'toast-open.vbs').replace(/'/g, "''");
   const ps = [
     // ── 白箱化：第一行先落出生证明，全局 trap 收尸，PID 实名注册 ──
     // 自建日志目录：托盘可能由快捷方式链在 dsh 之前/之后拉起，目录缺失时 Add-Content 会失败
@@ -230,7 +240,7 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     `New-Item -Path 'HKCU:\\Software\\Classes\\dsh-webui' -Force | Out-Null`,
     `Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\dsh-webui' -Name 'URL Protocol' -Value ''`,
     `New-Item -Path 'HKCU:\\Software\\Classes\\dsh-webui\\shell\\open\\command' -Force | Out-Null`,
-    `Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\dsh-webui\\shell\\open\\command' -Name '(default)' -Value "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"${openScriptPath ?? ''}\`""`,
+    `Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\dsh-webui\\shell\\open\\command' -Name '(default)' -Value "\`"C:\\Windows\\System32\\wscript.exe\`" \`"${toastVbsInline}\`""`,
     `# 通知 Shell 关联已变更：新协议可能被 Shell 缓存拒绝（实测首次点击"没有找到可跳转的链接"）`,
     `try {`,
     `  Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class SHN { [DllImport("shell32.dll")] public static extern void SHChangeNotify(long wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2); }' -ErrorAction SilentlyContinue`,
