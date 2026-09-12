@@ -16,7 +16,7 @@
  *
  * 运行：node tests/forged-official.mjs（退出码非 0 即失败）
  */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -264,6 +264,31 @@ await step('步骤 -1｜host 产物链接冒烟：lib/index.js 的 import 图必
   assert.equal(typeof hostModule.apply, 'function', 'apply 导出缺失')
   assert.equal(typeof hostModule.name, 'string', 'name 导出缺失')
   assert.ok(Array.isArray(hostModule.inject), 'inject 导出缺失')
+})
+
+// 步骤 -1b｜生成脚本语法守卫（P2-B7c 补洞）：open-webui.ps1 / tray.ps1 是运行时由
+// 模板字符串生成的——函数对账与 tsc 都不覆盖模板内部文本，语法损坏只有 PowerShell
+// 解析才暴露；而解析失败 = 整个脚本一行不执行且零日志（openBrowser 不查 spawnSync
+// 退出码——2026-09-12 真机回归实锤：B2 迁移丢一个 `}`，快捷方式启动后浏览器静默不开）。
+await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScript 产物必须通过 PowerShell Parser', async () => {
+  const { writeOpenScript } = await import('../lib/host/scripts.js')
+  const { writeTrayScript } = await import('../lib/host/tray.js')
+  const { spawnSync } = await import('node:child_process')
+  const scriptDir = join(launcherDir, 'script-guard')
+  rmSync(scriptDir, { recursive: true, force: true })
+  mkdirSync(scriptDir, { recursive: true })
+  // 两个 openScript 变体（无 PWA app id / 有 app id——openMode 分支内容不同）+ tray.ps1
+  writeOpenScript(scriptDir, 3080, 'app', 'DSH WebUI', null)
+  writeOpenScript(scriptDir, 3080, 'app', 'DSH WebUI', 'ofjcbbcobnobobmogpaohlojjnjfcplh')
+  writeTrayScript(scriptDir, 3080, join(scriptDir, 'dsh-webui.ico'), join(scriptDir, 'open-webui.ps1'), null)
+  for (const f of ['open-webui.ps1', 'tray.ps1']) {
+    const p = join(scriptDir, f)
+    assert.ok(existsSync(p), f + ' 未生成')
+    const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      `$errs=$null;$toks=$null;$null=[System.Management.Automation.Language.Parser]::ParseFile('${p.replace(/'/g, "''")}',[ref]$toks,[ref]$errs);if($errs){$errs|ForEach-Object{Write-Output ('LINE '+$_.Extent.StartLineNumber+': '+$_.Message)};exit 1}`],
+      { encoding: 'utf8' })
+    assert.equal(r.status, 0, f + ' PowerShell 语法解析失败：' + String(r.stdout ?? '') + String(r.stderr ?? ''))
+  }
 })
 
 await step('步骤 0｜伪造面自检：inject 守卫与真 Session 契约都必须在假 API 里成立', () => {
