@@ -60,16 +60,18 @@ export function setupAutoOpen(deps: AutoOpenDeps): void {
     const webServer = getService('webServer') as { port?: number } | undefined
     const port = webServer?.port
     if (port === undefined) return false
+    // 启动耗时指标（v0.4.1 优化数据源）：页面就绪探测总时长 = 后端可服务速度的直接反映
+    const probeT0 = Date.now()
     waitForPageReady(port, 15000, (ready) => {
       // 已有页面在线（launch.cmd openLine / 用户已手动打开）→ 不再开浏览器，
       // 避免"先起前端再起后端"的双开（日志实锤：online 早于 auto-open）。
       const online = getClientsOnline()
       if (online > 0) {
-        logMsg(`[auto-open] page already online (clients=${online}), skip auto-open`)
+        logMsg(`[auto-open] page already online (clients=${online}), skip auto-open (probe took ${Date.now() - probeT0}ms)`)
         return
       }
-      if (!ready) logMsg('[auto-open] page not ready within 15s, opening anyway')
-      else logMsg(`[auto-open] page ready (HTTP 2xx), opening browser (port=${port})`)
+      if (!ready) logMsg(`[auto-open] page not ready within 15s (probe took ${Date.now() - probeT0}ms), opening anyway`)
+      else logMsg(`[auto-open] page ready (HTTP 2xx) in ${Date.now() - probeT0}ms, opening browser (port=${port})`)
       setTimeout(() => openBrowser(port, launcherDir, logMsg), 200)
     })
     return true

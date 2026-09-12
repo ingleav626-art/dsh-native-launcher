@@ -70,6 +70,9 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   const launcherDir = join(home, '.dsh-webui-launcher');
   const { logsDir, applySeq } = beginApplyLog(launcherDir);
   logMsg(`──────────────── apply #${applySeq} start (dsh pid=${process.pid}) ────────────────`);
+  // 启动耗时埋点（v0.4.1 性能优化的数据来源）：各阶段日志带相对 apply 开始的毫秒数
+  const applyT0 = Date.now();
+  const elapsed = (): string => `+${Date.now() - applyT0}ms`;
   // rc.8 适配：官方 dsh web 默认自动打开浏览器（普通标签页），会与我们插件的
   // PWA 应用窗口打开形成双开——启动命令加 --no-open 让官方让位，由插件
   // （autoOpen → open-webui.ps1，PWA 应用优先）负责打开。
@@ -83,6 +86,7 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   // 合并结果作为本次生效配置；用户改设置后需重启 dsh 完全生效（脚本/托盘/快捷方式都在 apply 时生成）。
   // settingsScope 属主 = src/host/io/settings.ts（P2-B1 起收拢；RPC 的 config.get/set 经它读写）
   const { scope: settingsScope, cfg: resolvedCfg } = registerLauncherSettings(ctx, config, logMsg);
+  logMsg(`timing: settings registered ${elapsed()}`);
   let cfg = resolvedCfg;
   const launchCommand = cfg.launchCommand ?? 'dsh --profile web --no-open';
   const shortcutName = cfg.shortcutName ?? 'DSH WebUI';
@@ -115,9 +119,11 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     const pwaAppId = findInstalledPwaAppId(port, launcherDir);
     logMsg(`environment: plugin=${PLUGIN_VERSION} node=${process.version} os=${os.type()} ${os.release()} (${os.arch()})`);
     logMsg(`environment: launcherDir=${launcherDir} pwaAppId=${pwaAppId ?? '(not installed — toast click will do nothing)'}`);
+    logMsg(`timing: pwa scan done ${elapsed()}`);
     writeOpenScript(launcherDir, port, openMode, shortcutName, pwaAppId);
     writeLauncherFiles(launcherDir, launchCommand, port, trayPath, openScriptPath);
     if (trayEnabled) writeTrayScript(launcherDir, port, join(launcherDir, 'dsh-webui.ico'), join(launcherDir, 'open-webui.ps1'), pwaAppId);
+    logMsg(`timing: launcher scripts written ${elapsed()}`);
   } catch (error) {
     logMsg(`launcher script failed: ${error}`);
   }
@@ -269,6 +275,7 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
         if (!trayRunning || runningVersion !== TRAY_SCRIPT_VERSION) {
           startTrayProcess(launcherDir, trayPath, cfg.traySurvivesDsh !== false, logMsg, logWarn, logFail);
         }
+        logMsg(`timing: tray ensured ${elapsed()}`);
       }
     } catch (error) {
       logMsg(`tray spawn failed: ${error}`);
@@ -289,6 +296,7 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     onNotificationModule: (instance) => { notificationModule = instance as unknown as NotificationModuleHandle; },
     logMsg, logWarn, logFail,
   });
+  logMsg(`timing: modules loaded ${elapsed()}`);
 
   // 4.7 关闭语义 + 5. 自动开页面（P2-B5 迁入 src/host/services/，此处仅组装接线）：
   const closeToExitHandle = setupCloseToExit({
