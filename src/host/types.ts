@@ -48,7 +48,8 @@ export interface LauncherConfig {
   closeToExitDebounceSeconds?: number
   closeToExitFinalConfirmSeconds?: number
   force?: boolean
-  modules?: { notifications?: boolean }
+  /** 模块开关（键 = 模块 id；容器按 id 索引，故放宽为记录类型）。 */
+  modules?: { notifications?: boolean } & Record<string, boolean | undefined>
 }
 
 /**
