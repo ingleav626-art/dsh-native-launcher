@@ -13,3 +13,7 @@ compare-result-*.txt
 
 # 本地记忆/工作目录（不入库）
 .workbuddy/
+
+# 对账临时文件与提交信息草稿（2026-09-12）
+.tmp-compare/
+.tmp-commit-msg.txt

@@ -72,6 +72,7 @@ const ENTRIES = [
   ['src/host/io/icon.ts', 'lib/host/icon.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/shortcut.ts', 'lib/host/shortcut.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/pwa.ts', 'lib/host/pwa.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/io/tray.ts', 'lib/host/tray.js', 'esm', 'node', { sourcemap: false }],
 ]
 
 let built = 0
