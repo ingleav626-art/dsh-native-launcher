@@ -9,11 +9,12 @@
 /** 日志函数（host 统一 logMsg/logWarn/logFail 的窄签名，注入给 io 模块避免同层 import）。 */
 export type LogFn = (msg: string) => void
 
-/** 官方 SettingsScope 的消费侧窄面（get/update/watch 三件套，P1·S-C 实证）。 */
+/** 官方 SettingsScope 的消费侧窄面（get/update/watch 三件套，P1·S-C 实证；replace 为卸载重置路径）。 */
 export interface SettingsScopeLike<T> {
   get(): T
   update(patch: Partial<T>): Promise<void>
   watch(listener: (next: T, prev: T) => void): () => void
+  replace?(section: unknown): Promise<void>
 }
 
 /** 官方 settings 服务的消费侧窄面（register 返回 scope）。 */

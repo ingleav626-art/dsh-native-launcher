@@ -76,6 +76,7 @@ const ENTRIES = [
   ['src/host/services/closeToExit.ts', 'lib/host/services/closeToExit.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/services/autoOpen.ts', 'lib/host/services/autoOpen.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/rpcBridge.ts', 'lib/host/rpcBridge.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/services/launcherRpc.ts', 'lib/host/services/launcherRpc.js', 'esm', 'node', { sourcemap: false }],
 ]
 
 let built = 0
