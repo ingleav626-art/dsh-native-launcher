@@ -16,7 +16,7 @@
  *
  * 运行：node tests/forged-official.mjs（退出码非 0 即失败）
  */
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
@@ -323,6 +323,50 @@ await step('步骤 -1c｜launch.cmd 探测行结构契约：必须读 webui-url.
   assert.ok(probe, 'launch.cmd 缺少 HTTP 探测行')
   assert.ok(probe[1].includes('webui-url.txt'), '探测行必须读 webui-url.txt（token 数据源）——裸探测在 token 鉴权时代恒 401 误判 closed')
   assert.ok(probe[1].includes('Invoke-WebRequest'), '探测行必须发 HTTP 请求')
+})
+
+// 步骤 -1d｜tray.ps1 launch 目标行为测试（2026-09-12 晚三重失效的终局补闸）：
+// 文本断言抓不到三类 bug——① Show-TrayToast 引用了函数局部 $appId（作用域盲区）、
+// ② 模板双引号让 TS 插值失效留字面占位符（[System.Uri] 抛异常被 catch 吞段）、
+// ③ launch 值拼裸 appId!App（UWP 格式对非打包 PWA 无效）。解法 = launch 目标计算
+// 提成 Get-ToastLaunchTarget 真函数 + 模板标记 E2E-EXTRACT 段，这里提取后配 stub
+// 真执行，断言两个分支的真实返回值。
+await step('步骤 -1d｜tray.ps1 launch 目标行为测试：Get-ToastLaunchTarget 两分支真执行', async () => {
+  const { writeTrayScript } = await import('../lib/host/tray.js')
+  const { spawnSync } = await import('node:child_process')
+  const dir = join(launcherDir, 'launch-behavior')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeTrayScript(dir, 3080, join(dir, 'dsh-webui.ico'), join(dir, 'open-webui.ps1'), null)
+  const tray = readFileSync(join(dir, 'tray.ps1'), 'utf8')
+  const m = tray.match(/# ==== E2E-EXTRACT-START[\s\S]*?# ==== E2E-EXTRACT-END ====/)
+  assert.ok(m, 'tray.ps1 缺 E2E-EXTRACT 标记段（行为测试无法提取）')
+  const script = [
+    "function Log-Notify([string]$m) { Write-Output ('[ln] ' + $m) }",
+    m[0],
+    "Write-Output ('BRANCH1=' + (Get-ToastLaunchTarget))",
+    '$pwaLaunch = $null',
+    "Write-Output ('BRANCH2=' + (Get-ToastLaunchTarget))",
+  ].join('\n')
+  const ps1 = join(dir, 'behavior.ps1')
+  writeFileSync(ps1, script, 'utf8')
+  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-File', ps1], { encoding: 'utf8', timeout: 30000 })
+  rmSync(dir, { recursive: true, force: true })
+  assert.equal(r.status, 0, 'launch 目标计算抛异常（插值/作用域/语法回归）：' + String(r.stderr ?? '').slice(0, 300))
+  const out = String(r.stdout ?? '')
+  const b1 = out.match(/BRANCH1=(\S+)/)?.[1] ?? ''
+  const b2 = out.match(/BRANCH2=(\S+)/)?.[1] ?? ''
+  assert.ok(b1, 'PWA 分支无返回值')
+  assert.ok(b2, 'URL 回退分支无返回值')
+  // BRANCH2 强制 $pwaLaunch=$null 后调用：必须是页面 URL 且无占位符字面量（插值失效检测）
+  assert.ok(/^http:\/\/127\.0\.0\.1:3080(\/|\?token=)/.test(b2), `URL 回退分支必须是本机页面 URL（可带 token），实际 ${b2}`)
+  assert.ok(!b2.includes('${'), 'URL 回退分支含未插值占位符（模板双引号回归）')
+  // BRANCH1：有 PWA → shell:AppsFolder\<真实项名>（项名必须形如 127.0.0.1-…，禁止裸 appId 拼接）；无 PWA → 与 BRANCH2 同
+  if (b1.startsWith('shell:AppsFolder\\')) {
+    assert.ok(/shell:AppsFolder\\127\.0\.0\.1-/.test(b1), `PWA 分支必须是 AppsFolder 真实项名（127.0.0.1-… 形式），实际 ${b1}`)
+  } else {
+    assert.ok(b1 === b2, `无 PWA 时 BRANCH1 应与 BRANCH2 同为页面 URL，实际 ${b1} vs ${b2}`)
+  }
 })
 
 await step('步骤 0｜伪造面自检：inject 守卫与真 Session 契约都必须在假 API 里成立', () => {
