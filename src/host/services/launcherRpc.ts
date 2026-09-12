@@ -85,6 +85,7 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
                 shortcutName: live.shortcutName ?? 'DSH WebUI',
                 autoOpen: live.autoOpen !== false,
                 force: live.force === true,
+                autoStartBoot: live.autoStartBoot === true,
                 port: live.port ?? 3080,
                 tray: live.tray !== false,
                 trayNotify: live.trayNotify !== false,

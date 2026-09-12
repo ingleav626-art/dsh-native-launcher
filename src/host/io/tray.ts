@@ -16,7 +16,7 @@ import { logsDirOf } from '../core/paths.ts';
  * 托盘启动时把此版本写入 launcherDir/tray-version.txt，
  * apply 对比版本，旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
  */
-export const TRAY_SCRIPT_VERSION = 17;
+export const TRAY_SCRIPT_VERSION = 18;
 
 /** 生成托盘脚本（PowerShell + WinForms NotifyIcon，系统自带零依赖；单实例互斥 + 两项菜单 + 任务通知气泡）。
  *  appId：已装 PWA 的应用 id（可选）——"退出 WebUI"用它精确关闭本站应用窗口；
@@ -227,6 +227,13 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     `$trayNotifyFile = '${join(launcherDir, 'tray-notify.json').replace(/'/g, "''")}'`,
     `$trayNotifyLog = '${join(logsDirOf(launcherDir), 'tray-notify.log').replace(/'/g, "''")}'`,
     `$webuiUrlFile = '${join(launcherDir, 'webui-url.txt').replace(/'/g, "''")}'`,
+    `# PWA 的 AppsFolder 真实项名：启动时枚举一次（127.0.0.1-<hash>_<appId>!App 形式——`,
+    `# 注意不能拿裸 appId 拼 '<appId>!App'，那是 UWP 打包应用格式，对 Edge/Chrome 非打包`,
+    `# PWA 无效，ShellExecute 静默失败 → 点击通知无反应，真机实锤 2026-09-12）。`,
+    `# 与 open-webui.ps1 拉起 PWA 的枚举同源同款。顶层变量：函数内可见（PowerShell 父作用域）。`,
+    `$pwaLaunch = $null`,
+    `try { $apps = @((New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Path -like '127.0.0.1-*' -or $_.Path -like 'localhost-*' }); if ($apps.Count -gt 0) { $pwaLaunch = $apps[0].Path } } catch { }`,
+    `if ($pwaLaunch) { Log-Notify ('pwa app found: ' + $pwaLaunch) } else { Log-Notify 'pwa app not found (toast launch will use token URL)' }`,
     'function Show-TrayToast([string]$title, [string]$body, [bool]$persistent) {',
     '  $err = \'\'',
     '  try {',
@@ -250,14 +257,9 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     '        $toastNode = $template.DocumentElement',
     "        $toastNode.SetAttribute('activationType', 'protocol')",
     '        $launchVal = $null',
-    '        if ($appId) {',
-    '          try {',
-    "            $apps = @((New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Path -like '127.0.0.1-*' -or $_.Path -like 'localhost-*' })",
-    "            if ($apps.Count -gt 0) { $launchVal = 'shell:AppsFolder\\' + $apps[0].Path }",
-    '          } catch { }',
-    '        }',
+    '        if ($pwaLaunch) { $launchVal = \'shell:AppsFolder\\\' + $pwaLaunch }',
     '        if (-not $launchVal) {',
-    "          $u = 'http://127.0.0.1:${String(port)}/'",
+    `          $u = 'http://127.0.0.1:${String(port)}/'`,
     '          if (Test-Path $webuiUrlFile) {',
     '            $t = (Get-Content $webuiUrlFile -Raw).Trim()',
     '            if ($t) {',
