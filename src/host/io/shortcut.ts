@@ -2,7 +2,7 @@
  * 桌面快捷方式（L2 副作用边界）：.lnk 创建 + 实名登记（卸载定点清除的依据）。
  * 从 index.js 原样搬入（P2-B3）。
  */
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { LogFn } from '../types.ts';
@@ -57,5 +57,50 @@ export function createDesktopShortcut(shortcutName: string, vbsPath: string, ico
     } catch { /* 登记失败不影响快捷方式本身 */ }
   } catch (error) {
     logMsg(`shortcut creation failed: ${error}`);
+  }
+}
+
+/** 当前用户的启动文件夹（shell:startup）里本插件快捷方式的路径。 */
+export function startupLnkPath(shortcutName: string): string {
+  const appData = process.env.APPDATA ?? '';
+  return join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', `${shortcutName}.lnk`);
+}
+
+/**
+ * 开机自启动（默认关）：在 shell:startup 建/删指向 launcher.vbs 的快捷方式。
+ * 语义 = 开机自动"双击桌面快捷方式"（静默启动 dsh web + 自动打开页面）。
+ * 幂等：enabled 时已存在则跳过；disabled 时存在才删——重复 apply 不产生副作用。
+ */
+export function ensureStartupShortcut(shortcutName: string, vbsPath: string, iconPath: string | null, enabled: boolean, logMsg: LogFn): void {
+  const lnk = startupLnkPath(shortcutName);
+  try {
+    if (!enabled) {
+      if (existsSync(lnk)) {
+        try { unlinkSync(lnk); logMsg(`startup shortcut removed (autoStartBoot=false): ${lnk}`); } catch (e) { logMsg(`startup shortcut removal failed: ${e}`); }
+      }
+      return;
+    }
+    if (existsSync(lnk)) {
+      // 校验现有 lnk 是否仍指向当前 vbs（目录迁移后变孤儿则重建）
+      const buf = readFileSync(lnk);
+      if (buf.includes(Buffer.from(vbsPath, 'utf16le'))) {
+        logMsg(`startup shortcut already exists and points to current vbs, skipping: ${lnk}`);
+        return;
+      }
+      logMsg(`startup shortcut points elsewhere, recreating: ${lnk}`);
+    }
+    const ps = [
+      `$ws = New-Object -ComObject WScript.Shell`,
+      `$s = $ws.CreateShortcut('${lnk.replace(/'/g, "''")}')`,
+      `$s.TargetPath = 'C:\\Windows\\System32\\wscript.exe'`,
+      `$s.Arguments = '"${vbsPath.replace(/"/g, '""')}"'`,
+      `$s.WorkingDirectory = '${(process.env.USERPROFILE ?? '').replace(/'/g, "''")}'`,
+      iconPath ? `$s.IconLocation = '${iconPath.replace(/'/g, "''")}'` : null,
+      `$s.Save()`,
+    ].filter(Boolean).join('; ');
+    spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', windowsHide: true });
+    logMsg(`startup shortcut created (autoStartBoot=true): ${lnk}`);
+  } catch (error) {
+    logMsg(`startup shortcut failed: ${error}`);
   }
 }

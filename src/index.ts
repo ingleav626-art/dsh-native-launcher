@@ -15,7 +15,7 @@ import { detectDshVersion, logEnvDiagnostics } from './host/io/diagnostics.ts';
 import { registerLauncherSettings } from './host/io/settings.ts';
 import { writeOpenScript, writeLauncherFiles } from './host/io/scripts.ts';
 import { ensureIcon, extractPngDataUrl } from './host/io/icon.ts';
-import { createDesktopShortcut } from './host/io/shortcut.ts';
+import { createDesktopShortcut, ensureStartupShortcut, startupLnkPath } from './host/io/shortcut.ts';
 import { findInstalledPwaAppId, registerPwaRoutes } from './host/io/pwa.ts';
 import { TRAY_SCRIPT_VERSION, writeTrayScript, killExistingTrays, startTrayProcess } from './host/io/tray.ts';
 import { setupCloseToExit } from './host/services/closeToExit.ts';
@@ -141,9 +141,10 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     } catch { }
   }
 
-  // 2. 图标 + 桌面快捷方式
+  // 2. 图标 + 桌面快捷方式 + 开机自启（默认关；设置页 autoStartBoot 开关控制，热应用在 config.set）
   const iconPath = ensureIcon(launcherDir, logMsg);
   createDesktopShortcut(shortcutName, vbsPath, iconPath, force, launcherDir, logMsg);
+  ensureStartupShortcut(shortcutName, vbsPath, iconPath, cfg.autoStartBoot === true, logMsg);
 
   // 3. 注册设置页 RPC（P2-B6-b 迁入 src/host/services/launcherRpc.ts，此处仅组装接线）：
   //    主通道 connection.rpc.handle（0.1.5-rc.x 起官方 connection fiber 未注入 webServer，
@@ -168,7 +169,7 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     io: {
       nextSaveSeq, findInstalledPwaAppId, writeOpenScript, writeLauncherFiles, writeTrayScript,
       ensureIcon, createDesktopShortcut, extractPngDataUrl, resolveDesktopPath, logsDirOf,
-      killExistingTrays, startTrayProcess,
+      killExistingTrays, startTrayProcess, ensureStartupShortcut, startupLnkPath,
     },
     logMsg, logWarn, logFail,
   });

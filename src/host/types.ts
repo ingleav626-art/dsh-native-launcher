@@ -48,6 +48,8 @@ export interface LauncherConfig {
   closeToExitDebounceSeconds?: number
   closeToExitFinalConfirmSeconds?: number
   force?: boolean
+  /** 开机自启动（shell:startup 放快捷方式，语义 = 开机双击桌面快捷方式；默认关）。 */
+  autoStartBoot?: boolean
   /** 模块开关（键 = 模块 id；容器按 id 索引，故放宽为记录类型）。 */
   modules?: { notifications?: boolean } & Record<string, boolean | undefined>
 }

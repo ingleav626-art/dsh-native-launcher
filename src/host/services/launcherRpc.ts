@@ -39,6 +39,8 @@ export interface LauncherIo {
   logsDirOf(launcherDir: string): string
   killExistingTrays(launcherDir: string, logMsg: LogFn): string
   startTrayProcess(launcherDir: string, trayPath: string, preferPersistent: boolean, logMsg: LogFn, logWarn: LogFn, logFail: LogFn): void
+  ensureStartupShortcut(shortcutName: string, vbsPath: string, iconPath: string | null, enabled: boolean, logMsg: LogFn): void
+  startupLnkPath(shortcutName: string): string
 }
 
 export interface LauncherRpcDeps {
@@ -131,6 +133,7 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               if (values.openMode !== undefined) patch.openMode = ['app', 'new-window', 'default'].includes(values.openMode as string) ? values.openMode : 'app';
               if (values.force !== undefined) patch.force = !!values.force;
               if (values.traySurvivesDsh !== undefined) patch.traySurvivesDsh = !!values.traySurvivesDsh;
+              if (values.autoStartBoot !== undefined) patch.autoStartBoot = !!values.autoStartBoot;
               if (values.modules && typeof values.modules === 'object') {
                 patch.modules = { notifications: (values.modules as { notifications?: unknown }).notifications !== false };
               }
@@ -173,6 +176,10 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
                   }
                 }
                 io.createDesktopShortcut(fShortcutName, deps.vbsPath, io.ensureIcon(launcherDir, logMsg), false, launcherDir, logMsg);
+                // 开机自启开关：即时生效（建/删 shell:startup 快捷方式，不重启 dsh）
+                if (changedKeys.includes('autoStartBoot')) {
+                  io.ensureStartupShortcut(fShortcutName, deps.vbsPath, io.ensureIcon(launcherDir, logMsg), fresh.autoStartBoot === true, logMsg);
+                }
                 logMsg(`[settings] ${seq} hot-apply: artifacts regenerated ok`);
                 const TRAY_RELATED = ['tray', 'traySurvivesDsh', 'port', 'openMode'];
                 const trayChanged = changedKeys.filter(k => TRAY_RELATED.includes(k));
@@ -360,14 +367,17 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               addFail(`清理生成物失败（继续）: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
             }
             try {
-              // 4) 删除 AUMID 注册表键（Toast 通知身份）
-              logU('INFO', 'STEP 4/5 registry: reg delete HKCU\\...\\AppUserModelId\\DshNativeLauncher');
-              const reg = spawnSync('reg.exe', ['delete', 'HKCU\\Software\\Classes\\AppUserModelId\\DshNativeLauncher', '/f'], { encoding: 'utf8', windowsHide: true });
+              // 4) 删除 AUMID 注册表键（Toast 通知身份）。用注册表 provider 而非 reg.exe：
+              //    reg.exe 在部分安全策略下被程序黑名单拦截（沙箱实测"拒绝访问"），PS 原生零依赖。
+              logU('INFO', 'STEP 4/5 registry: remove HKCU\\...\\AppUserModelId\\DshNativeLauncher');
+              const reg = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+                `$p = 'HKCU:\\Software\\Classes\\AppUserModelId\\DshNativeLauncher'; if (-not (Test-Path $p)) { Write-Output 'absent'; exit 2 }; Remove-Item $p -Recurse -Force -ErrorAction Stop; if (Test-Path $p) { exit 1 }; Write-Output 'deleted'; exit 0`],
+                { encoding: 'utf8', windowsHide: true });
               const regOut = String((reg.stdout ?? '') + ' ' + (reg.stderr ?? '')).trim();
               if (reg.status === 0) {
                 addStep('已删除通知标识注册表项 (AUMID DshNativeLauncher)');
                 logU('INFO', `STEP 4/5 registry: deleted${regOut ? ' :: ' + regOut.slice(0, 200) : ''}`);
-              } else if (/unable to find/i.test(regOut)) {
+              } else if (reg.status === 2 || /absent/i.test(regOut)) {
                 addStep('通知注册表项不存在（跳过）');
                 logU('INFO', `STEP 4/5 registry: key absent, skip`);
               } else {
@@ -376,6 +386,37 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               }
             } catch (error) {
               addFail(`清理注册表失败（继续）: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+            }
+            try {
+              // 4a) 删除开机自启快捷方式（shell:startup；autoStartBoot 开关的生成物，路径在 launcherDir 外）
+              const sLnk = io.startupLnkPath(deps.shortcutName);
+              if (existsSync(sLnk)) {
+                try { unlinkSync(sLnk); addStep('已删除开机自启快捷方式（启动文件夹）'); logU('INFO', `STEP 4/5 startup shortcut removed: ${sLnk}`); } catch (e) { addStep(`开机自启快捷方式删除失败（继续）: ${e instanceof Error ? e.message : String(e)}`); logU('WARN', `STEP 4/5 startup shortcut remove failed: ${e}`); }
+              } else {
+                logU('INFO', 'STEP 4/5 startup shortcut absent, skip');
+              }
+            } catch (error) {
+              addFail(`清理开机自启失败（继续）: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+            }
+            try {
+              // 4b) 删除 dsh-webui: 协议注册（Toast 点击回 DeepSeek 的入口；与 tray.ps1 的写入对应）
+              logU('INFO', 'STEP 4/5 registry: remove HKCU\\...\\Classes\\dsh-webui');
+              const reg2 = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+                `$p = 'HKCU:\\Software\\Classes\\dsh-webui'; if (-not (Test-Path $p)) { Write-Output 'absent'; exit 2 }; Remove-Item $p -Recurse -Force -ErrorAction Stop; if (Test-Path $p) { exit 1 }; Write-Output 'deleted'; exit 0`],
+                { encoding: 'utf8', windowsHide: true });
+              const reg2Out = String((reg2.stdout ?? '') + ' ' + (reg2.stderr ?? '')).trim();
+              if (reg2.status === 0) {
+                addStep('已删除 dsh-webui: 协议注册表项');
+                logU('INFO', `STEP 4/5 registry: deleted dsh-webui${reg2Out ? ' :: ' + reg2Out.slice(0, 200) : ''}`);
+              } else if (reg2.status === 2 || /absent/i.test(reg2Out)) {
+                addStep('dsh-webui: 协议注册表项不存在（跳过）');
+                logU('INFO', `STEP 4/5 registry: dsh-webui key absent, skip`);
+              } else {
+                addStep(`dsh-webui: 协议删除退出码 ${reg2.status}（详见 uninstall.log）`);
+                logU('WARN', `STEP 4/5 registry dsh-webui FAILED: exit=${reg2.status} output=${reg2Out.slice(0, 300)}`);
+              }
+            } catch (error) {
+              addFail(`清理 dsh-webui 协议失败（继续）: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
             }
             try {
               // 5) profile 自移除：扫描 $DSH_HOME/profiles/*/package.json，摘除 dependencies 条目
