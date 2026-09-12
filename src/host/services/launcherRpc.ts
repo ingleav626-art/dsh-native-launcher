@@ -340,7 +340,7 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               // 3) 清理生成物与日志（目录保留：插件仍在运行，避免日志写入报错）
               logU('INFO', 'STEP 3/5 artifacts: begin (uninstall.log is exempt from this list)');
               // 日志统一在 logs/ 子目录（用户排错时整包发这一个文件夹），脚本与状态文件在根目录
-              const artifacts = ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'toast-open.vbs', 'dsh-webui.ico',
+              const artifacts = ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico',
                 join('logs', 'native-launcher.log'), join('logs', 'native-launcher.prev.log'),
                 join('logs', 'launch.log'), join('logs', 'tray-exit.log'), join('logs', 'tray-notify.log'),
                 join('logs', 'pwa-scan.log'), join('logs', 'open-webui.log'), join('logs', 'test-results.log'),

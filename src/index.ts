@@ -37,7 +37,7 @@ function armExitCleanup(dir: string) {
     const target = pendingExitCleanup; pendingExitCleanup = null;
     if (!target) return;
     try {
-      for (const name of ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'toast-open.vbs', 'dsh-webui.ico', 'tray-pid.txt', 'tray-version.txt']) {
+      for (const name of ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico', 'tray-pid.txt', 'tray-version.txt']) {
         const p = join(target, name);
         if (existsSync(p)) { try { unlinkSync(p); } catch { } }
       }
