@@ -270,8 +270,12 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     '>> "%LOGDIR%\\launch.log" echo [%date% %time%] launch.cmd start (probe 127.0.0.1:' + String(port) + ')',
     // HTTP 探测（而非 TCP）：TCP 通 ≠ 服务活——"托盘退出后立刻双击"时旧 dsh 端口
     // 可能未释放，TCP 探测误判 open → 前端拉起但后端已死 → 白屏（issue: 前端无法正常显示）。
-    // HTTP GET / 返回 2xx = 后端活着且页面可服务，才走"已运行"分支。
-    `powershell -NoProfile -NonInteractive -WindowStyle Hidden -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:${String(port)}/' -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300) { exit 0 } else { exit 1 } } catch { exit 1 }"`,
+    // 2026-09-12 探测语义对齐（真机实锤修复）：此前裸 / 只认 2xx，而 dsh alpha.2+ 起裸路径
+    // 恒 401（token 鉴权）→ 服务运行时永远误判 closed → 双击快捷方式永不唤起、反而试图再
+    // 拉起实例（EADDRINUSE 静默失败）。修正两点（与 autoOpen / open-webui.ps1 同一套语义）：
+    // 1) 优先 webui-url.txt 的带 token URL（host+port 匹配才采用）
+    // 2) 收到任何 HTTP 响应（含 401）都算 alive——能收到响应 = 服务在；连接拒绝/超时才算 closed
+    `powershell -NoProfile -NonInteractive -WindowStyle Hidden -Command "$ErrorActionPreference = 'SilentlyContinue'; $u = 'http://127.0.0.1:${String(port)}/'; $tf = '${join(launcherDir, 'webui-url.txt')}'; if (Test-Path $tf) { $t = (Get-Content $tf -Raw).Trim(); if ($t) { $p2 = [System.Uri]$t; $b2 = [System.Uri]$u; if ($p2.Host -eq $b2.Host -and $p2.Port -eq $b2.Port) { $u = $t } } }; try { $null = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3; exit 0 } catch { if ($_.Exception.Response) { exit 0 }; exit 1 }"`,
     'if %errorlevel%==0 (',
     `  >> "%LOGDIR%\\launch.log" echo [%date% %time%] probe=open - server already running`,
     openLine,

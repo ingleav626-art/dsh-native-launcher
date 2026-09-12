@@ -291,6 +291,23 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
   }
 })
 
+// 步骤 -1c｜launch.cmd 探测行结构契约守卫（2026-09-12 真机实锤补漏）：探测必须走
+// webui-url.txt 的 token URL（与 autoOpen/open-webui.ps1 同一数据源）——旧版裸探测
+// 在 dsh token 鉴权时代恒 401 误判 closed → 双击快捷方式永不唤起。行为级验证在沙箱
+// 全链路做（真实 dsh + 真实 token + 真实 launch.cmd），此处守卫结构不被回退。
+await step('步骤 -1c｜launch.cmd 探测行结构契约：必须读 webui-url.txt 的 token URL', async () => {
+  const { writeLauncherFiles } = await import('../lib/host/scripts.js')
+  const dir = join(launcherDir, 'probe-guard')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeLauncherFiles(dir, 'dsh --profile web --no-open', 3080, null, join(dir, 'open-webui.ps1'))
+  const cmd = readFileSync(join(dir, 'launch.cmd'), 'utf8')
+  const probe = cmd.match(/powershell -NoProfile[^\r\n]*-Command "([^"]*Invoke-WebRequest[^"]*)"/)
+  assert.ok(probe, 'launch.cmd 缺少 HTTP 探测行')
+  assert.ok(probe[1].includes('webui-url.txt'), '探测行必须读 webui-url.txt（token 数据源）——裸探测在 token 鉴权时代恒 401 误判 closed')
+  assert.ok(probe[1].includes('Invoke-WebRequest'), '探测行必须发 HTTP 请求')
+})
+
 await step('步骤 0｜伪造面自检：inject 守卫与真 Session 契约都必须在假 API 里成立', () => {
   // 这两条是"测试的测试"：假 API 若少了官方守卫，适配层接线错误就会一路潜伏到真机
   // （2026-09-11 沙箱实测的 S1/S2 就是这么漏过去的）
