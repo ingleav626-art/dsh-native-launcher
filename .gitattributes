@@ -1,0 +1,3 @@
+# 构建产物（esbuild 从 src/ 生成，lib/ 入库是因为 pnpm link 安装不跑构建钩子）：
+# 标注 generated 后 GitHub 语言统计不再把产物计入 JS 比例
+lib/** linguist-generated
