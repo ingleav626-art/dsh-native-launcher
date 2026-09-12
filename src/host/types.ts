@@ -26,7 +26,7 @@ export interface WebServerFace {
   register(route: {
     kind: 'exact' | 'prefix'
     path: string
-    handler: (req: unknown, res: { writeHead(status: number, headers: Record<string, string>): void; end(body?: unknown): void }) => void
+    handler: (req: unknown, res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void }) => void
   }): void
 }
 

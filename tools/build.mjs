@@ -73,6 +73,8 @@ const ENTRIES = [
   ['src/host/io/shortcut.ts', 'lib/host/shortcut.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/pwa.ts', 'lib/host/pwa.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/tray.ts', 'lib/host/tray.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/services/closeToExit.ts', 'lib/host/services/closeToExit.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/services/autoOpen.ts', 'lib/host/services/autoOpen.js', 'esm', 'node', { sourcemap: false }],
 ]
 
 let built = 0
