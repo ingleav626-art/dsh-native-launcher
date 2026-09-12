@@ -10,6 +10,10 @@
  * P2 启动器 host 整体接管。
  */
 import { build } from 'esbuild'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'))
 
 // 官方包一律 external：由 profile 的 node_modules 提供（schemastery 是唯一被模块直接 import 的官方运行时依赖）
 const dshExternal = ['@deepseek-ai/*']
@@ -51,8 +55,7 @@ const CLIENT_WRAP = {
 
 // [入口, 产物, 格式, 平台, 额外选项]
 //
-// P2-B7b 组装根产物化：src/index.ts / src/host/core/moduleRegistry.ts 以源相对 .ts 引用兄弟
-// 模块，构建时经 rewriteExternal 插件改写为产物视角的相对路径并标记 external——
+// P2-B7b 组装根产物化：src/index.ts / src/host/core/moduleRegistry.ts 以源相对 .ts 引用兄弟// 模块，构建时经 rewriteExternal 插件改写为产物视角的相对路径并标记 external——
 // lib/host/* 保持独立产物（不回退成单文件 bundle）；tsc 侧 NodeNext 直接解析 .ts 做类型检查。
 // strict 模式下未映射的入口相对引用直接报错（防悄悄 bundle 回单文件）。
 const rewriteExternal = (importMap, { strict = false } = {}) => ({
@@ -143,7 +146,7 @@ const ENTRIES = [
   ],
   ['src/host/io/ports.ts', 'lib/host-ports.js', 'esm', 'node', { sourcemap: false }],
   // P2-B7b：组装根产物化——lib/index.js 由 src/index.ts 生成（手写版退役）
-  ['src/index.ts', 'lib/index.js', 'esm', 'node', { sourcemap: false, banner: { js: INDEX_BANNER }, plugins: [rewriteExternal(INDEX_IMPORT_MAP, { strict: true })] }],
+  ['src/index.ts', 'lib/index.js', 'esm', 'node', { sourcemap: false, banner: { js: INDEX_BANNER }, define: { PLUGIN_VERSION: JSON.stringify(pkg.version) }, plugins: [rewriteExternal(INDEX_IMPORT_MAP, { strict: true })] }],
 ]
 
 let built = 0

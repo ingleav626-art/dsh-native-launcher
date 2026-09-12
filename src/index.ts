@@ -1,8 +1,13 @@
 // dsh-native-launcher 组装根（P2-B7b 起：lib/index.js 由本文件构建生成，不再手写）。
 // 产物头部说明经 build.mjs 的 INDEX_BANNER 保留。
 import { spawn, spawnSync } from 'node:child_process';
+import os from 'node:os';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+// 插件版本（构建时由 tools/build.mjs 的 define 注入 package.json version——
+// 环境快照与诊断日志用它对齐"哪个版本在跑"，不依赖用户描述）
+declare const PLUGIN_VERSION: string;
 // 模块系统（dev-notes 一·七）：本体之外的功能全部走 lib/modules/<id>，统一 gating
 import { CORE_API_VERSION, BUILTIN_MODULES } from './host/core/moduleRegistry.ts';
 // 端口适配层（P1 通知 v2）：把官方 ctx / 本体状态翻成模块的窄接口（唯一触碰官方形状的地方）
@@ -105,7 +110,11 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     mkdirSync(launcherDir, { recursive: true });
     const trayPath = trayEnabled ? join(launcherDir, 'tray.ps1') : null;
     const openScriptPath = join(launcherDir, 'open-webui.ps1');
+    // 环境快照（用户报障定位第一屏）：OS/Node/插件版本/PWA 检测结果——环境类问题
+    // （老系统/旧 Node/浏览器未装 PWA）不靠用户描述，靠这里一次落盘。
     const pwaAppId = findInstalledPwaAppId(port, launcherDir);
+    logMsg(`environment: plugin=${PLUGIN_VERSION} node=${process.version} os=${os.type()} ${os.release()} (${os.arch()})`);
+    logMsg(`environment: launcherDir=${launcherDir} pwaAppId=${pwaAppId ?? '(not installed — toast click will do nothing)'}`);
     writeOpenScript(launcherDir, port, openMode, shortcutName, pwaAppId);
     writeLauncherFiles(launcherDir, launchCommand, port, trayPath, openScriptPath);
     if (trayEnabled) writeTrayScript(launcherDir, port, join(launcherDir, 'dsh-webui.ico'), join(launcherDir, 'open-webui.ps1'), pwaAppId);
