@@ -54,19 +54,20 @@ describe('ensureStartupShortcut：关闭（enabled=false）', () => {
     expect(LOGS.some((l) => l.includes('startup shortcut removed'))).toBe(true)
   })
 
-  it('lnk 不存在 → 什么都不做（幂等，重复关闭无副作用）', () => {
+  it('lnk 不存在 → 什么都不做（幂等，重复关闭无副作用），并留痕"关闭无残留"分支', () => {
     existsSync.mockReturnValue(false)
     ensureStartupShortcut('DSH WebUI', VBS, null, false, logMsg)
     expect(unlinkSync).not.toHaveBeenCalled()
     expect(spawnSync).not.toHaveBeenCalled()
+    expect(LOGS.some((l) => l.includes('disabled') && l.includes('nothing to clean'))).toBe(true)
   })
 })
 
 describe('ensureStartupShortcut：开启（enabled=true）', () => {
-  it('lnk 不存在 → 调 PowerShell 创建（命令含 wscript 目标与 vbs 参数）', () => {
-    // 预期：开启且无快捷方式 → 通过 PowerShell WScript.Shell 创建，目标 = wscript.exe，
-    // 参数 = 我们的 launcher.vbs（防双开链路入口）
-    existsSync.mockReturnValue(false)
+  it('lnk 不存在 → PowerShell 退出 0 且回读存在 → 记 created', () => {
+    // 预期：创建成功以"退出码 0 + lnk 真实落盘"双条件判定（缺一即 FAILED）
+    existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true)
+    spawnSync.mockReturnValue({ status: 0 })
     ensureStartupShortcut('DSH WebUI', VBS, 'C:\\fake\\icon.ico', true, logMsg)
     expect(spawnSync).toHaveBeenCalledTimes(1)
     const cmd = String(spawnSync.mock.calls[0][1]?.[3] ?? '')
@@ -75,6 +76,24 @@ describe('ensureStartupShortcut：开启（enabled=true）', () => {
     expect(cmd).toContain(VBS)
     expect(cmd).toContain('icon.ico')
     expect(LOGS.some((l) => l.includes('startup shortcut created'))).toBe(true)
+    expect(LOGS.some((l) => l.includes('FAILED'))).toBe(false)
+  })
+
+  it('PowerShell 非零退出 → 记 FAILED（含退出码与输出），不得谎报 created', () => {
+    // 预期：创建失败必须留失败原因（退出码+stderr），此前无条件打 created 是谎报
+    existsSync.mockReturnValue(false)
+    spawnSync.mockReturnValue({ status: 1, stderr: 'Access denied' })
+    ensureStartupShortcut('DSH WebUI', VBS, null, true, logMsg)
+    expect(LOGS.some((l) => l.includes('creation FAILED') && l.includes('exit=1') && l.includes('Access denied'))).toBe(true)
+    expect(LOGS.some((l) => l.includes('startup shortcut created'))).toBe(false)
+  })
+
+  it('PowerShell 退出 0 但 lnk 未落盘 → 记 FAILED（回读验证）', () => {
+    existsSync.mockReturnValue(false) // 创建后回读仍 false = Save 没生效
+    spawnSync.mockReturnValue({ status: 0 })
+    ensureStartupShortcut('DSH WebUI', VBS, null, true, logMsg)
+    expect(LOGS.some((l) => l.includes('creation FAILED') && l.includes('lnk missing'))).toBe(true)
+    expect(LOGS.some((l) => l.includes('startup shortcut created'))).toBe(false)
   })
 
   it('lnk 已存在且指向当前 vbs → 幂等跳过（不重建）', () => {

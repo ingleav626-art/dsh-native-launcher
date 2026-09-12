@@ -75,11 +75,15 @@ export function ensureStartupShortcut(shortcutName: string, vbsPath: string, ico
   const lnk = startupLnkPath(shortcutName);
   try {
     if (!enabled) {
+      // 分支日志：关闭时区分"有残留已清理"与"本来就没有"——排查"为什么开机还自启/为什么没自启"都要看得到
       if (existsSync(lnk)) {
         try { unlinkSync(lnk); logMsg(`startup shortcut removed (autoStartBoot=false): ${lnk}`); } catch (e) { logMsg(`startup shortcut removal failed: ${e}`); }
+      } else {
+        logMsg(`startup shortcut disabled (autoStartBoot=false), nothing to clean`);
       }
       return;
     }
+    logMsg(`startup shortcut enabled (autoStartBoot=true)`);
     if (existsSync(lnk)) {
       // 校验现有 lnk 是否仍指向当前 vbs（目录迁移后变孤儿则重建）
       const buf = readFileSync(lnk);
@@ -98,7 +102,18 @@ export function ensureStartupShortcut(shortcutName: string, vbsPath: string, ico
       iconPath ? `$s.IconLocation = '${iconPath.replace(/'/g, "''")}'` : null,
       `$s.Save()`,
     ].filter(Boolean).join('; ');
-    spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', windowsHide: true });
+    // 成败必须以 PowerShell 退出码为准——此前不检查状态，创建失败也报"created"（谎报）
+    const created = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, encoding: 'utf8' });
+    if (created.status !== 0) {
+      const detail = String((created.stderr ?? '') + (created.stdout ?? '')).trim().slice(0, 300);
+      logMsg(`startup shortcut creation FAILED (exit=${created.status}): ${detail || 'no output'} — lnk=${lnk}`);
+      return;
+    }
+    // 创建后回读验证 Save 真的落盘（COM 无报错但文件缺失的环境问题也有留痕）
+    if (!existsSync(lnk)) {
+      logMsg(`startup shortcut creation FAILED: powershell exited 0 but lnk missing — lnk=${lnk}`);
+      return;
+    }
     logMsg(`startup shortcut created (autoStartBoot=true): ${lnk}`);
   } catch (error) {
     logMsg(`startup shortcut failed: ${error}`);
