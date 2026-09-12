@@ -13,8 +13,6 @@
   "files": [
     "lib",
     "assets",
-    "tools",
-    "!tools/compare-result-*.txt",
     "cordis.patch.yml",
     "README.md",
     "THIRD-PARTY-NOTICES"
