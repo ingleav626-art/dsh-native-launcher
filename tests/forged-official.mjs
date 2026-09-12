@@ -283,17 +283,15 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
   writeTrayScript(scriptDir, 3080, join(scriptDir, 'dsh-webui.ico'), join(scriptDir, 'open-webui.ps1'), null)
   // tray.ps1 语义结构守卫（2026-09-12 真机实锤补洞）：launch 段两处历史 bug 都是
   // "语法正确但语义错"——语法守卫抓不到，必须断言关键结构存在：
-  // ① Toast launch 必须现场枚举 AppsFolder（'<appId>!App' 是 UWP 格式，对 Edge
-  //    非打包 PWA 无效 → 点击静默无反应）；
+  // ① launch 目标 = launcher.vbs（双击快捷方式同链路，聚焦优先防双开——2026-09-12
+  //    实测定案：URL 双开 / AppsFolder 弹新窗口 / 协议注册杀软，三路全毙）；
   // ② launch 值必须落 tray-notify.log（点击无反应时的唯一排查线索）；
   // ③ AUMID 注册（Toast 必需）与 dsh-webui 协议清理（升级自愈）必须保留。
   {
     const tray = readFileSync(join(scriptDir, 'tray.ps1'), 'utf8')
     assert.ok(tray.includes("SetAttribute('launch'"), 'tray.ps1 缺 Toast launch 设置')
-    assert.ok(tray.includes("NameSpace('shell:AppsFolder')"), 'tray.ps1 缺 AppsFolder 枚举（launch 不得拼 appId!App）')
     assert.ok(!tray.includes('+ \'!App\''), 'tray.ps1 出现 UWP 式 !App 拼接（对非打包 PWA 无效）')
     assert.ok(!tray.includes('${String(port)'), 'tray.ps1 出现未插值的 ${String(port)} 字面量（模板用了双引号——[System.Uri] 会抛异常吞掉 launch 段，真机实锤 2026-09-12）')
-    assert.ok(tray.includes('$pwaLaunch'), 'tray.ps1 缺顶层 PWA 枚举变量（Show-TrayToast 内的 $appId 是函数局部值，不可见）')
     // launch 计算必须是「调 Get-ToastLaunchTarget」而非函数体内联展开——内联写法会
     // 重新引入作用域/插值类 bug（v17 的 $appId 局部值 + 占位符字面量都是内联期引入的）
     const toastBody = (tray.split('function Show-TrayToast')[1] ?? '').split(/\nfunction /)[0] ?? ''
@@ -302,6 +300,12 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
     assert.ok(tray.includes('[toast] launch='), 'tray.ps1 缺 launch 值日志留痕')
     assert.ok(tray.includes('AppUserModelId\\DshNativeLauncher'), 'tray.ps1 缺 AUMID 注册')
     assert.ok(tray.includes("Classes\\dsh-webui'"), 'tray.ps1 缺 v13 协议残留清理行')
+    // launch 目标断言（2026-09-12 实测定案）：必须 = launcher.vbs 路径（与双击快捷方式
+    // 同链路：wscript 零窗口 → launch.cmd 聚焦优先防双开）。禁 URL（双开）/禁
+    // AppsFolder（--app-id 已运行弹新窗口=双开）/禁协议注册（杀软）。
+    assert.ok(/Get-ToastLaunchTarget[\s\S]*launcher\.vbs/.test(tray), 'Get-ToastLaunchTarget 必须返回 launcher.vbs 路径（双击快捷方式同链路）')
+    assert.ok(!tray.includes('http://127.0.0.1:') || !/launch.*http/.test(tray.split('function Get-ToastLaunchTarget')[1] ?? ''), 'Get-ToastLaunchTarget 不得返回 URL（双开）')
+    assert.ok(!tray.includes('shell:AppsFolder\\') || !/return.*AppsFolder/.test(tray.split('function Get-ToastLaunchTarget')[1] ?? ''), 'Get-ToastLaunchTarget 不得返回 AppsFolder 项（--app-id 已运行弹新窗口=双开）')
     // 全文引用完整性守卫（v18 教训的终局闸）：臆造函数不是语法错误——Parser、文本断言
     // 全放行，只有托盘运行时才 fatal（三连死）。做法 = 提取全部 function 定义块（大括号
     // 平衡，不执行 boot 副作用段——mutex 检查的 exit 0 会把校验脚本静默终止）拼成定义
@@ -397,27 +401,25 @@ await step('步骤 -1d｜tray.ps1 launch 目标行为测试：Get-ToastLaunchTar
   const script = [
     "function Log-Exit([string]$m) { Write-Output ('[le] ' + $m) }",
     m[0],
-    "Write-Output ('BRANCH1=' + (Get-ToastLaunchTarget))",
-    '$pwaLaunch = $null',
-    "Write-Output ('BRANCH2=' + (Get-ToastLaunchTarget))",
+    "$t = Get-ToastLaunchTarget",
+    "Write-Output ('TARGET=' + $t)",
+    "Write-Output ('EXISTS=' + (Test-Path $t))",
   ].join('\n')
   const ps1 = join(dir, 'behavior.ps1')
+  // 测试前提：writeTrayScript 假定 launcher.vbs 已由 writeLauncherFiles 生成——
+  // 预置一个（内容无关紧要，EXISTS 检查只验路径计算正确）
+  writeFileSync(join(dir, 'launcher.vbs'), "' placeholder", 'utf8')
   writeFileSync(ps1, script, 'utf8')
   const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-File', ps1], { encoding: 'utf8', timeout: 30000 })
   rmSync(dir, { recursive: true, force: true })
   assert.equal(r.status, 0, 'launch 目标计算抛异常（插值/作用域/语法回归）：' + String(r.stderr ?? '').slice(0, 300))
   const out = String(r.stdout ?? '')
-  const b1 = out.match(/BRANCH1=(\S*)/)?.[1] ?? ''
-  const b2 = out.match(/BRANCH2=(\S*)/)?.[1] ?? ''
-  // BRANCH2 强制 $pwaLaunch=$null 后调用：未装 PWA = 返回空、点击无动作（2026-09-12
-  // 用户裁决：浏览器不暴露"精准聚焦已有标签页"接口，URL 兜底必然双开，放弃该场景跳转）
-  assert.equal(b2, '', `未装 PWA 必须返回空（禁 URL 兜底防双开），实际 '${b2}'`)
-  // BRANCH1：有 PWA → shell:AppsFolder\<真实项名>（127.0.0.1-… 形式，禁止裸 appId 拼接）；
-  // 无 PWA 的环境 → 也为空（与 BRANCH2 同）
-  if (b1 !== '') {
-    assert.ok(/shell:AppsFolder\\127\.0\.0\.1-/.test(b1), `PWA 分支必须是 AppsFolder 真实项名（127.0.0.1-… 形式），实际 ${b1}`)
-  }
-  assert.ok(!b1.startsWith('http'), 'launch 不得是 URL（双开源头，已裁决删除）')
+  const target = out.match(/TARGET=(\S+)/)?.[1] ?? ''
+  const exists = out.match(/EXISTS=(\S+)/)?.[1] ?? ''
+  // 目标必须是 launcher.vbs（双击快捷方式同链路）且文件真实存在——存在性用真实
+  // 文件系统判定，不靠文本（2026-09-12 用户定调：测试必须有清晰结果与指标）
+  assert.ok(/launcher\.vbs$/.test(target), `launch 目标必须是 launcher.vbs，实际 '${target}'`)
+  assert.equal(exists, 'True', `launch 目标文件不存在：${target}（点击会静默无反应）`)
 })
 
 await step('步骤 0｜伪造面自检：inject 守卫与真 Session 契约都必须在假 API 里成立', () => {
