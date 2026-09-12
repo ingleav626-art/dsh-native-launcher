@@ -21,6 +21,15 @@ export interface SettingsProviderLike {
   register<T>(namespace: string, schema: unknown, options: { base?: unknown }): SettingsScopeLike<T>
 }
 
+/** 官方 webServer 的消费侧窄面（PWA 路由 / RPC 兜底桥用）。 */
+export interface WebServerFace {
+  register(route: {
+    kind: 'exact' | 'prefix'
+    path: string
+    handler: (req: unknown, res: { writeHead(status: number, headers: Record<string, string>): void; end(body?: unknown): void }) => void
+  }): void
+}
+
 /**
  * 启动器设置形状（与 src/host/io/settings.ts 的 schemastery schema 字段一一对应）。
  * 全部可选：patch base、用户设置文档、合并结果的宽松度不同——消费端各自收紧。

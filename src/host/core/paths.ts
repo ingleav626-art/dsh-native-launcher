@@ -1,6 +1,8 @@
 /**
- * 路径规则（L1 纯函数）——布局单一派生点，改目录布局只改这里。
+ * 路径规则与只读探测（L1）——布局单一派生点，改目录布局只改这里。
+ * 计划 L1 职责原文：「路径规则、端口探测判定」——resolveDesktopPath 属于前者。
  */
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -9,4 +11,18 @@ import { join } from 'node:path';
  */
 export function logsDirOf(launcherDir: string): string {
   return join(launcherDir, 'logs');
+}
+
+/** 解析 Windows 桌面路径（优先 OneDrive 重定向的桌面）。 */
+export function resolveDesktopPath(): string | null {
+  const profile = process.env.USERPROFILE;
+  if (!profile) return null;
+  const candidates = [
+    join(profile, 'OneDrive', 'Desktop'),
+    join(profile, 'Desktop'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[candidates.length - 1];
 }

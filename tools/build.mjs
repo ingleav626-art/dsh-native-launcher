@@ -66,10 +66,12 @@ const ENTRIES = [
   ['src/host/core/version.ts', 'lib/host/version.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/core/paths.ts', 'lib/host/paths.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/logger.ts', 'lib/host/logger.js', 'esm', 'node', { sourcemap: false }],
-  ['src/host/io/desktop.ts', 'lib/host/desktop.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/diagnostics.ts', 'lib/host/diagnostics.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/settings.ts', 'lib/host/settings.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/scripts.ts', 'lib/host/scripts.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/io/icon.ts', 'lib/host/icon.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/io/shortcut.ts', 'lib/host/shortcut.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/io/pwa.ts', 'lib/host/pwa.js', 'esm', 'node', { sourcemap: false }],
 ]
 
 let built = 0

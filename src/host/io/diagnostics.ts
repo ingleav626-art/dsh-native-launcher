@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { LauncherConfig, LogFn } from '../types.ts';
-import { resolveDesktopPath } from './desktop.ts';
+import { resolveDesktopPath } from '../core/paths.ts';
 
 /** 检测当前 dsh 版本（读 DSH_HOME 下 profile 依赖树里的 dsh 包）；找不到返回 ''。 */
 export function detectDshVersion(): string {
