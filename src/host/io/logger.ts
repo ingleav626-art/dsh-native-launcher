@@ -10,6 +10,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { logsDirOf } from '../core/paths.ts';
 
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR';
 
@@ -48,15 +49,6 @@ function logWrite(level: LogLevel, msg: string): void {
 export function logMsg(msg: string): void { logWrite('INFO', msg); }
 export function logWarn(msg: string): void { logWrite('WARN', msg); }
 export function logFail(msg: string): void { logWrite('ERROR', msg); }
-
-/**
- * 日志子目录：**所有诊断日志都写在这里**，用户排错时整包发这一个文件夹即可
- * （2026-09-11 用户定调：日志要好找、能一把拖过来；根目录只留脚本与状态文件）。
- * 单一派生点：各处写入路径都经它计算，改布局只改这里。
- */
-export function logsDirOf(launcherDir: string): string {
-  return join(launcherDir, 'logs');
-}
 
 /**
  * 一次性迁移：把历史上写在生成物根目录的 `*.log` 挪进 `logs/`。

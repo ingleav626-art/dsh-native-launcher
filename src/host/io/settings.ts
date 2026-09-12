@@ -53,22 +53,22 @@ export interface LauncherSettingsRegistration {
 export function registerLauncherSettings(
   ctx: { settings?: SettingsProviderLike },
   config: LauncherConfig,
-  log: LogFn,
+  logMsg: LogFn,
 ): LauncherSettingsRegistration {
   try {
     if (ctx.settings) {
       const scope = ctx.settings.register<LauncherConfig>(SETTINGS_NAMESPACE, LAUNCHER_SETTINGS_SCHEMA, { base: config });
       const cfg: LauncherConfig = { ...config, ...scope.get() };
-      log(`[settings] registered ns=${SETTINGS_NAMESPACE} (resolved: port=${cfg.port}, launchCommand=${JSON.stringify(cfg.launchCommand)}, tray=${cfg.tray !== false}, traySurvivesDsh=${cfg.traySurvivesDsh !== false}, modules=${JSON.stringify(cfg.modules)})`);
-      scope.watch(() => log('settings updated — restart dsh (double-click shortcut) to fully apply'));
+      logMsg(`[settings] registered ns=${SETTINGS_NAMESPACE} (resolved: port=${cfg.port}, launchCommand=${JSON.stringify(cfg.launchCommand)}, tray=${cfg.tray !== false}, traySurvivesDsh=${cfg.traySurvivesDsh !== false}, modules=${JSON.stringify(cfg.modules)})`);
+      scope.watch(() => logMsg('settings updated — restart dsh (double-click shortcut) to fully apply'));
       return { scope, cfg };
     }
-    log('settings service unavailable, using patch config only');
+    logMsg('settings service unavailable, using patch config only');
   } catch (error) {
     // 重复注册（fiber 重载竞态）等场景：保留 patch 配置继续跑，不拖垮本体
     // 取值口径与原实现逐字等价：优先 message 属性，否则值本身（严格 TS 下 catch 入参是 unknown）
     const err = error as { message?: string };
-    log(`settings register skipped: ${err?.message ?? error}`);
+    logMsg(`settings register skipped: ${err?.message ?? error}`);
   }
   return { scope: null, cfg: config };
 }

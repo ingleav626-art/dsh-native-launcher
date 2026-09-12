@@ -64,10 +64,12 @@ const ENTRIES = [
   // P2-B1 起：启动器 host 拆分批次——中间产物 lib/host/*.js，手写 lib/index.js 渐进改 import；
   // 全部批次完成后 index.js 本体转为构建产物（P4 切换）
   ['src/host/core/version.ts', 'lib/host/version.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/core/paths.ts', 'lib/host/paths.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/logger.ts', 'lib/host/logger.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/desktop.ts', 'lib/host/desktop.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/diagnostics.ts', 'lib/host/diagnostics.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/settings.ts', 'lib/host/settings.js', 'esm', 'node', { sourcemap: false }],
+  ['src/host/io/scripts.ts', 'lib/host/scripts.js', 'esm', 'node', { sourcemap: false }],
 ]
 
 let built = 0

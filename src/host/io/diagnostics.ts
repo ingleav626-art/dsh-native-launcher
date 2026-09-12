@@ -32,10 +32,11 @@ export function detectDshVersion(): string {
 }
 
 /**
- * 环境诊断快照：apply 时逐行写 `[diag]` 域日志（注入 log，避免 io 同层 import）。
+ * 环境诊断快照：apply 时逐行写 `[diag]` 域日志（注入 logMsg——参数名与打点函数统一，
+ * log-inventory 按打点文本对账时才能识别；io 同层互不 import 的架构规则不变）。
  * powershell 输出按行拆分；无输出 = 诊断失败（记一行，不影响启动）。
  */
-export function logEnvDiagnostics(launcherDir: string, config: LauncherConfig, log: LogFn): void {
+export function logEnvDiagnostics(launcherDir: string, config: LauncherConfig, logMsg: LogFn): void {
   const lc = config.launchCommand ?? 'dsh --profile web --no-open';
   const first = (lc.split(/\s+/)[0] || '').replace(/["']/g, '');
   const desktop = resolveDesktopPath() ?? '';
@@ -67,9 +68,9 @@ export function logEnvDiagnostics(launcherDir: string, config: LauncherConfig, l
   child.on('close', () => {
     const rows = String(out).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     if (!rows.length) {
-      log('[diag] env snapshot failed (no output)');
+      logMsg('[diag] env snapshot failed (no output)');
       return;
     }
-    for (const line of rows) log(`[diag] ${line}`);
+    for (const line of rows) logMsg(`[diag] ${line}`);
   });
 }

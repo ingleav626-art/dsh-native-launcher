@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { beginApplyLog, logMsg, logsDirOf, migrateLegacyLogs, nextSaveSeq } from './logger.ts'
+import { beginApplyLog, logMsg, migrateLegacyLogs, nextSaveSeq } from './logger.ts'
+import { logsDirOf } from '../core/paths.ts'
 
 const tempDirs: string[] = []
 function makeTempDir(): string {

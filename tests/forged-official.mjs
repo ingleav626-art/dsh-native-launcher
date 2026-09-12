@@ -255,6 +255,17 @@ ports.notify = {
 
 console.log('伪造官方 API 端到端自测（tray-notify.json 落在临时目录）\n')
 
+// 步骤 -1｜host 产物链接冒烟（P2-B2 补洞）：手写 lib/index.js 与 lib/host/*.js 产物之间的
+// import 契约没有 tsc/node --check 兜底（JS 不进 tsc；语法检查不查跨文件绑定）——
+// ESM 链接错误（导入的绑定不存在）只有真加载才炸，且炸的是整个 dsh 启动。
+// 这里真实 import 一次，链接错误当场暴露。
+await step('步骤 -1｜host 产物链接冒烟：lib/index.js 的 import 图必须能解析', async () => {
+  const hostModule = await import('../lib/index.js')
+  assert.equal(typeof hostModule.apply, 'function', 'apply 导出缺失')
+  assert.equal(typeof hostModule.name, 'string', 'name 导出缺失')
+  assert.ok(Array.isArray(hostModule.inject), 'inject 导出缺失')
+})
+
 await step('步骤 0｜伪造面自检：inject 守卫与真 Session 契约都必须在假 API 里成立', () => {
   // 这两条是"测试的测试"：假 API 若少了官方守卫，适配层接线错误就会一路潜伏到真机
   // （2026-09-11 沙箱实测的 S1/S2 就是这么漏过去的）
