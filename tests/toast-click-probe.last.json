@@ -1,0 +1,10 @@
+{
+  "phase": "wait-click",
+  "pass": true,
+  "metrics": {
+    "点击→执行延迟": "2676 ms",
+    "新增留痕行数": 2,
+    "最新留痕": "[2026/09/12 ���� 22:13:56.60] probe=open - server already running\r"
+  },
+  "error": null
+}
