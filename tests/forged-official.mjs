@@ -303,21 +303,32 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
     assert.ok(tray.includes('AppUserModelId\\DshNativeLauncher'), 'tray.ps1 缺 AUMID 注册')
     assert.ok(tray.includes("Classes\\dsh-webui'"), 'tray.ps1 缺 v13 协议残留清理行')
     // 全文引用完整性守卫（v18 教训的终局闸）：臆造函数不是语法错误——Parser、文本断言
-    // 全放行，只有托盘运行时才 fatal（三连死）。做法 = 截掉主循环后 dot-source 真实执行
-    // 全部定义（规范二：用真实 PowerShell Get-Command 判定存在性，不靠文本对照），再对
-    // 全文每个 Verb-Noun 形态的调用名逐一验证——Get-Command 对自定义函数与内置 cmdlet
-    // 都能命中，唯独臆造名查不到。
+    // 全放行，只有托盘运行时才 fatal（三连死）。做法 = 提取全部 function 定义块（大括号
+    // 平衡，不执行 boot 副作用段——mutex 检查的 exit 0 会把校验脚本静默终止）拼成定义
+    // 脚本加载，再对全文每个 Verb-Noun 形态标识符用真实 PowerShell Get-Command 验证
+    // 存在性（规范二：不靠文本对照）。注释行跳过（文档性提及函数名不是调用）。
     {
-      const truncated = tray.slice(0, tray.indexOf('# ==== MAIN-LOOP-START'))
-      assert.ok(truncated.length > 200, 'MAIN-LOOP-START 标记缺失或位置异常')
-      // PS 无参调用不带括号（$x = Get-ToastLaunchTarget）——收集全部 Verb-Noun 形态
-      // 标识符（定义/调用/传参处），逐一 Get-Command 验证，宁多勿漏。
-      // 注释行跳过：文档性提及函数名不是调用。
-      const codeLines = tray.split('\n').filter((l) => !l.trim().startsWith('#'))
+      const lines = tray.split('\n')
+      const fns = []
+      for (let i = 0; i < lines.length; i++) {
+        if (!/^function\s+[A-Za-z-]+/.test(lines[i])) continue
+        let depth = 0, buf = []
+        for (let j = i; j < lines.length; j++) {
+          buf.push(lines[j])
+          for (const ch of lines[j]) {
+            if (ch === '{') depth++
+            else if (ch === '}') depth--
+          }
+          if (depth === 0) { i = j; break }
+        }
+        fns.push(buf.join('\n'))
+      }
+      const codeLines = lines.filter((l) => !l.trim().startsWith('#'))
       const called = [...new Set(codeLines.flatMap((l) => [...l.matchAll(/\b([A-Z][a-z]+-[A-Z][A-Za-z]+)\b/g)].map((x) => x[1])))]
       assert.ok(called.includes('Get-ToastLaunchTarget'), '调用清单自检失败（正则没抓到调用）')
       const checkScript = [
-        truncated,
+        ...fns,
+        "Write-Output ('FUNCS-LOADED=' + (Get-Command -CommandType Function).Count)",
         ...called.map((fn) => `if (-not (Get-Command '${fn}' -ErrorAction SilentlyContinue)) { Write-Output ('MISSING=' + '${fn}') }`),
         "Write-Output 'REFCHECK-DONE'",
       ].join('\n')
@@ -326,7 +337,7 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
       const rr = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-File', rp], { encoding: 'utf8', timeout: 30000 })
       const out = String(rr.stdout ?? '')
       const missing = [...out.matchAll(/MISSING=(\S+)/g)].map((x) => x[1])
-      assert.equal(rr.status, 0, '截断版 tray.ps1 执行失败：' + String(rr.stderr ?? '').slice(0, 200))
+      assert.equal(rr.status, 0, '函数定义脚本加载失败：' + String(rr.stderr ?? '').slice(0, 200))
       assert.ok(out.includes('REFCHECK-DONE'), '引用校验未跑完：' + out.slice(0, 200))
       assert.deepEqual(missing, [], `tray.ps1 调用了不存在的函数：${missing.join(', ')}（运行时 fatal，v18 同款）`)
     }
@@ -396,19 +407,17 @@ await step('步骤 -1d｜tray.ps1 launch 目标行为测试：Get-ToastLaunchTar
   rmSync(dir, { recursive: true, force: true })
   assert.equal(r.status, 0, 'launch 目标计算抛异常（插值/作用域/语法回归）：' + String(r.stderr ?? '').slice(0, 300))
   const out = String(r.stdout ?? '')
-  const b1 = out.match(/BRANCH1=(\S+)/)?.[1] ?? ''
-  const b2 = out.match(/BRANCH2=(\S+)/)?.[1] ?? ''
-  assert.ok(b1, 'PWA 分支无返回值')
-  assert.ok(b2, 'URL 回退分支无返回值')
-  // BRANCH2 强制 $pwaLaunch=$null 后调用：必须是页面 URL 且无占位符字面量（插值失效检测）
-  assert.ok(/^http:\/\/127\.0\.0\.1:3080(\/|\?token=)/.test(b2), `URL 回退分支必须是本机页面 URL（可带 token），实际 ${b2}`)
-  assert.ok(!b2.includes('${'), 'URL 回退分支含未插值占位符（模板双引号回归）')
-  // BRANCH1：有 PWA → shell:AppsFolder\<真实项名>（项名必须形如 127.0.0.1-…，禁止裸 appId 拼接）；无 PWA → 与 BRANCH2 同
-  if (b1.startsWith('shell:AppsFolder\\')) {
+  const b1 = out.match(/BRANCH1=(\S*)/)?.[1] ?? ''
+  const b2 = out.match(/BRANCH2=(\S*)/)?.[1] ?? ''
+  // BRANCH2 强制 $pwaLaunch=$null 后调用：未装 PWA = 返回空、点击无动作（2026-09-12
+  // 用户裁决：浏览器不暴露"精准聚焦已有标签页"接口，URL 兜底必然双开，放弃该场景跳转）
+  assert.equal(b2, '', `未装 PWA 必须返回空（禁 URL 兜底防双开），实际 '${b2}'`)
+  // BRANCH1：有 PWA → shell:AppsFolder\<真实项名>（127.0.0.1-… 形式，禁止裸 appId 拼接）；
+  // 无 PWA 的环境 → 也为空（与 BRANCH2 同）
+  if (b1 !== '') {
     assert.ok(/shell:AppsFolder\\127\.0\.0\.1-/.test(b1), `PWA 分支必须是 AppsFolder 真实项名（127.0.0.1-… 形式），实际 ${b1}`)
-  } else {
-    assert.ok(b1 === b2, `无 PWA 时 BRANCH1 应与 BRANCH2 同为页面 URL，实际 ${b1} vs ${b2}`)
   }
+  assert.ok(!b1.startsWith('http'), 'launch 不得是 URL（双开源头，已裁决删除）')
 })
 
 await step('步骤 0｜伪造面自检：inject 守卫与真 Session 契约都必须在假 API 里成立', () => {

@@ -16,7 +16,7 @@ import { logsDirOf } from '../core/paths.ts';
  * 托盘启动时把此版本写入 launcherDir/tray-version.txt，
  * apply 对比版本，旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
  */
-export const TRAY_SCRIPT_VERSION = 19;
+export const TRAY_SCRIPT_VERSION = 20;
 
 /** 生成托盘脚本（PowerShell + WinForms NotifyIcon，系统自带零依赖；单实例互斥 + 两项菜单 + 任务通知气泡）。
  *  appId：已装 PWA 的应用 id（可选）——"退出 WebUI"用它精确关闭本站应用窗口；
@@ -226,7 +226,6 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     `try { Remove-Item 'HKCU:\\Software\\Classes\\dsh-webui' -Recurse -Force -ErrorAction SilentlyContinue } catch { }`,
     `$trayNotifyFile = '${join(launcherDir, 'tray-notify.json').replace(/'/g, "''")}'`,
     `$trayNotifyLog = '${join(logsDirOf(launcherDir), 'tray-notify.log').replace(/'/g, "''")}'`,
-    `$webuiUrlFile = '${join(launcherDir, 'webui-url.txt').replace(/'/g, "''")}'`,
     `# ==== E2E-EXTRACT-START（行为测试提取段：变量 + PWA 枚举 + Get-ToastLaunchTarget。`,
     `#      提取后只替换日志输出边界为 stdout 独立执行——铁律见 AGENTS.md 测试原则三：`,
     `#      被测链路上的函数禁止 mock；段内调用的函数必须已在段前真实定义。`,
@@ -241,18 +240,12 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     `if ($pwaLaunch) { Log-Exit ('pwa app found: ' + $pwaLaunch) } else { Log-Exit 'pwa app not found (toast launch will use token URL)' }`,
     'function Get-ToastLaunchTarget {',
     `  # 点击卡片回 DeepSeek 的跳转目标（零注册表——不碰系统默认程序，不触发杀软）：`,
-    `  # 已装 PWA → shell:AppsFolder\\<真实项名>（官方应用激活，已运行聚焦 / 未运行打开）；`,
-    `  # 未装 → 带 token 的页面 URL（弹通知时后端必活、token 必已落盘）→ 默认浏览器。`,
-    '  if ($pwaLaunch) { return \'shell:AppsFolder\\\' + $pwaLaunch }',
-    `  $u = 'http://127.0.0.1:${String(port)}/'`,
-    '  if (Test-Path $webuiUrlFile) {',
-    '    $t = (Get-Content $webuiUrlFile -Raw).Trim()',
-    '    if ($t) {',
-    '      $p2 = [System.Uri]$t; $b2 = [System.Uri]$u',
-    "      if ($p2.Host -eq $b2.Host -and $p2.Port -eq $b2.Port) { $u = $t }",
-    '    }',
-    '  }',
-    '  return $u',
+    `  # 已装 PWA → shell:AppsFolder\\<真实项名>（官方应用激活，已运行聚焦 / 未运行打开，`,
+    `  # 单实例语义天然防双开——用户定调的实现）。`,
+    `  # 未装 PWA → 返回空，点击无动作（2026-09-12 用户裁决：浏览器不暴露"精准聚焦`,
+    `  # 已有标签页"的接口，URL 兜底必然双开，直接放弃该场景的跳转）。`,
+    '  if (-not $pwaLaunch) { return $null }',
+    '  return \'shell:AppsFolder\\\' + $pwaLaunch',
     '}',
     `# ==== E2E-EXTRACT-END ====`,
     'function Show-TrayToast([string]$title, [string]$body, [bool]$persistent) {',
@@ -273,8 +266,10 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     '        $toastNode = $template.DocumentElement',
     "        $toastNode.SetAttribute('activationType', 'protocol')",
     '        $launchVal = Get-ToastLaunchTarget',
-    "        $toastNode.SetAttribute('launch', $launchVal)",
-    `        try { Add-Content -Path $trayNotifyLog -Value (('[' + (Get-Date -Format 'HH:mm:ss.fff') + '] [toast] launch=' + $launchVal)) -Encoding UTF8 } catch { }`,
+    '        if ($launchVal) {',
+    "          $toastNode.SetAttribute('launch', $launchVal)",
+    '        }',
+    `        try { Add-Content -Path $trayNotifyLog -Value (('[' + (Get-Date -Format 'HH:mm:ss.fff') + '] [toast] launch=' + ($(if ($launchVal) { $launchVal } else { '(none: PWA not installed, click does nothing)' })))) -Encoding UTF8 } catch { }`,
     '      } catch { }',
     '      if ($persistent) {',
     "        # 「需要手动关闭」（上游 requireInteraction 语义）：Windows 侧对应 scenario='reminder'",
