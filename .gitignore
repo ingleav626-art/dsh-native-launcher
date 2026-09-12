@@ -4,8 +4,7 @@ node_modules/
 .DS_Store
 
 # 本地工作文档（不入库）
-RELEASE_NOTES_0.3.0.md
-RELEASE_NOTES_0.3.5.md
+RELEASE_NOTES_*.md
 dev-notes.md
 AGENTS.md
 REFACTOR_PLAN.md
