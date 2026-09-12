@@ -42,13 +42,13 @@ interface LauncherForm {
   closeToExitDebounceSeconds: number
   closeToExitFinalConfirmSeconds: number
   force: boolean
-  modulesNotifications: boolean
+  autoStartBoot: boolean
 }
 
 /** `setValue` 的可写键。 */
 type FormKey = keyof LauncherForm
 /** 开关字段：`toggleEl` 只收布尔键，取值才不必再收窄。 */
-type ToggleKey = 'autoOpen' | 'tray' | 'traySurvivesDsh' | 'trayNotify' | 'closeToExit' | 'force' | 'modulesNotifications'
+type ToggleKey = 'autoOpen' | 'tray' | 'traySurvivesDsh' | 'trayNotify' | 'closeToExit' | 'force' | 'autoStartBoot'
 /** 数值字段：同上，`numberEl` 的 value 需要 number。 */
 type NumberKey = 'port' | 'closeToExitDebounceSeconds' | 'closeToExitFinalConfirmSeconds'
 
@@ -80,6 +80,7 @@ interface ConfigPayload {
   readonly closeToExitDebounceSeconds?: number | string
   readonly closeToExitFinalConfirmSeconds?: number | string
   readonly force?: boolean
+  readonly autoStartBoot?: boolean
   readonly modules?: { readonly notifications?: boolean }
   readonly shortcutExists?: boolean
   readonly settingsAvailable?: boolean
@@ -153,7 +154,7 @@ export function LauncherSection(props: LauncherSectionProps): ReactElement {
           closeToExitDebounceSeconds: Number(v.closeToExitDebounceSeconds) || 20,
           closeToExitFinalConfirmSeconds: Number(v.closeToExitFinalConfirmSeconds) || 2,
           force: v.force === true,
-          modulesNotifications: !(v.modules && v.modules.notifications === false),
+          autoStartBoot: v.autoStartBoot === true,
         });
         setMeta({ loading: false, error: null, shortcutExists: !!v.shortcutExists, settingsAvailable: v.settingsAvailable !== false });
       } else {
@@ -187,7 +188,7 @@ export function LauncherSection(props: LauncherSectionProps): ReactElement {
       closeToExitDebounceSeconds: f.closeToExitDebounceSeconds,
       closeToExitFinalConfirmSeconds: f.closeToExitFinalConfirmSeconds,
       force: f.force,
-      modules: { notifications: f.modulesNotifications },
+      autoStartBoot: f.autoStartBoot,
     } }).then((result) => {
       setSaving(false);
       if (result && result.ok) setNotice({ kind: 'ok', text: resultMessage(result) || 'saved' });
@@ -304,8 +305,7 @@ export function LauncherSection(props: LauncherSectionProps): ReactElement {
       groupEl('托盘与通知'),
       rowEl('系统托盘', '托盘图标：打开 WebUI / 任务通知 / 退出', toggleEl('tray')),
       rowEl('托盘在 dsh 退出后保留', '关 = 托盘随 dsh 一起退出（保存后立即按新模式重启托盘）', toggleEl('traySurvivesDsh')),
-      rowEl('任务托盘通知', '任务完成或需要关注时弹系统通知', toggleEl('trayNotify')),
-      rowEl('启用通知模块', 'WebUI 内的任务通知投影通道（关闭仅影响通知模块本身）', toggleEl('modulesNotifications')),
+      rowEl('托盘弹系统通知', '总开关：关闭后托盘不再弹系统通知（通知时机与规则在下方通知卡片里管理）', toggleEl('trayNotify')),
 
       groupEl('关闭语义（关窗即退）'),
       rowEl('关窗自动退出', '所有窗口关闭且无任务运行时自动退出服务（仅快捷方式启动生效）', toggleEl('closeToExit')),

@@ -281,6 +281,21 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
   writeOpenScript(scriptDir, 3080, 'app', 'DSH WebUI', null)
   writeOpenScript(scriptDir, 3080, 'app', 'DSH WebUI', 'ofjcbbcobnobobmogpaohlojjnjfcplh')
   writeTrayScript(scriptDir, 3080, join(scriptDir, 'dsh-webui.ico'), join(scriptDir, 'open-webui.ps1'), null)
+  // tray.ps1 语义结构守卫（2026-09-12 真机实锤补洞）：launch 段两处历史 bug 都是
+  // "语法正确但语义错"——语法守卫抓不到，必须断言关键结构存在：
+  // ① Toast launch 必须现场枚举 AppsFolder（'<appId>!App' 是 UWP 格式，对 Edge
+  //    非打包 PWA 无效 → 点击静默无反应）；
+  // ② launch 值必须落 tray-notify.log（点击无反应时的唯一排查线索）；
+  // ③ AUMID 注册（Toast 必需）与 dsh-webui 协议清理（升级自愈）必须保留。
+  {
+    const tray = readFileSync(join(scriptDir, 'tray.ps1'), 'utf8')
+    assert.ok(tray.includes("SetAttribute('launch'"), 'tray.ps1 缺 Toast launch 设置')
+    assert.ok(tray.includes("NameSpace('shell:AppsFolder')"), 'tray.ps1 缺 AppsFolder 枚举（launch 不得拼 appId!App）')
+    assert.ok(!tray.includes("+ '!App'"), 'tray.ps1 出现 UWP 式 !App 拼接（对非打包 PWA 无效）')
+    assert.ok(tray.includes('[toast] launch='), 'tray.ps1 缺 launch 值日志留痕')
+    assert.ok(tray.includes('AppUserModelId\\DshNativeLauncher'), 'tray.ps1 缺 AUMID 注册')
+    assert.ok(tray.includes("Classes\\dsh-webui'"), 'tray.ps1 缺 v13 协议残留清理行')
+  }
   for (const f of ['open-webui.ps1', 'tray.ps1']) {
     const p = join(scriptDir, f)
     assert.ok(existsSync(p), f + ' 未生成')

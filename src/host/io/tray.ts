@@ -16,7 +16,7 @@ import { logsDirOf } from '../core/paths.ts';
  * 托盘启动时把此版本写入 launcherDir/tray-version.txt，
  * apply 对比版本，旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
  */
-export const TRAY_SCRIPT_VERSION = 16;
+export const TRAY_SCRIPT_VERSION = 17;
 
 /** 生成托盘脚本（PowerShell + WinForms NotifyIcon，系统自带零依赖；单实例互斥 + 两项菜单 + 任务通知气泡）。
  *  appId：已装 PWA 的应用 id（可选）——"退出 WebUI"用它精确关闭本站应用窗口；
@@ -240,8 +240,10 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     '      $null = $textNodes.Item(0).AppendChild($template.CreateTextNode($title))',
     '      $null = $textNodes.Item(1).AppendChild($template.CreateTextNode($body))',
     "      # 点击卡片回到 DeepSeek（零注册表方案——不碰系统默认程序，不触发杀软）：",
-    "      # - 已装 PWA：launch = shell:AppsFolder\\<appId>!App —— 官方应用激活（已运行聚焦 / 未运行打开），",
-    "      #   与点击开始菜单图标完全同路径",
+    "      # - 已装 PWA：launch = shell:AppsFolder\\<AppsFolder 真实项名>。注意不能拼 '<appId>!App'：",
+    "      #   那是 UWP 打包应用格式；Edge/Chrome 装的 PWA 是非打包应用，AppsFolder 项名形如",
+    "      #   127.0.0.1-<port>-…（open-webui.ps1 拉起 PWA 枚举的就是它）——拼错 ShellExecute",
+    "      #   静默失败，点击无任何反应（真机实锤 2026-09-12）。故现场枚举拿真实项名。",
     "      # - 未装 PWA：launch = 带 token 的页面 URL（弹通知时后端必然活着、token 必已落盘）→ 默认浏览器",
     "      # launch 值落日志：点击无反应时先查这里（系统侧激活失败无任何报错，日志是唯一线索）",
     "      try {",
@@ -249,8 +251,12 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     "        $toastNode.SetAttribute('activationType', 'protocol')",
     '        $launchVal = $null',
     '        if ($appId) {',
-    "          $launchVal = 'shell:AppsFolder\\' + $appId + '!App'",
-    '        } else {',
+    '          try {',
+    "            $apps = @((New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Path -like '127.0.0.1-*' -or $_.Path -like 'localhost-*' })",
+    "            if ($apps.Count -gt 0) { $launchVal = 'shell:AppsFolder\\' + $apps[0].Path }",
+    '          } catch { }',
+    '        }',
+    '        if (-not $launchVal) {',
     "          $u = 'http://127.0.0.1:${String(port)}/'",
     '          if (Test-Path $webuiUrlFile) {',
     '            $t = (Get-Content $webuiUrlFile -Raw).Trim()',
