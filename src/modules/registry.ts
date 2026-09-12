@@ -12,7 +12,7 @@
  * - **v2（2026-09-11）**：模块改为**工厂 + 依赖注入**——`create(ports) → { start() }`，
  *   端口形状见各模块 `host/ports.ts`。模块不再接触 ctx/core（"ctx 只在组装根被触摸"）。
  *   此变更即 P1 通知 v2 的架构落地。
- *   ⚠️ 本常量与手写的 `lib/module-registry.js` 各有一份，P2 本体 TS 化时合并为单一事实源。
+ *   （2026-09-12 P2-B7b：host 侧 lib/module-registry.js TS 化后改为引用本常量——已合并为单一事实源。）
  */
 export const CORE_API_VERSION = 2
 

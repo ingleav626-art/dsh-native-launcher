@@ -52,10 +52,22 @@ export interface LauncherConfig {
   modules?: { notifications?: boolean } & Record<string, boolean | undefined>
 }
 
+/** 官方 connection 的消费侧窄面（authenticatedUrl / requestRejection 可选；rpc.handle 为设置页 RPC 主通道）。 */
+export interface ConnectionFace {
+  authenticatedUrl?(base: string): unknown
+  /** RPC 兜底桥用：把 HTTP 请求映射回连接（无连接时 null → 401）。 */
+  requestRejection?(req: unknown): number | null | undefined
+  rpc: { handle(channel: string, handler: unknown, opts?: unknown): unknown }
+}
+
 /**
- * 官方 cordis ctx 的窄面（随批次补全——当前 B1 只消费 settings）。
+ * 官方 cordis ctx 的窄面（随批次补全）。
  * 语义：字段存在 = 服务已注入且可用；可选 = 官方未注入时降级路径。
+ * webServer 必填（inject 声明保证注入）；get 是 cordis 服务取用窄面。
  */
 export interface HostCtx {
   settings?: SettingsProviderLike
+  connection?: ConnectionFace
+  webServer: WebServerFace
+  get(name: string): unknown
 }

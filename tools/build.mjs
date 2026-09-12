@@ -50,6 +50,60 @@ const CLIENT_WRAP = {
 }
 
 // [入口, 产物, 格式, 平台, 额外选项]
+//
+// P2-B7b 组装根产物化：src/index.ts / src/host/core/moduleRegistry.ts 以源相对 .ts 引用兄弟
+// 模块，构建时经 rewriteExternal 插件改写为产物视角的相对路径并标记 external——
+// lib/host/* 保持独立产物（不回退成单文件 bundle）；tsc 侧 NodeNext 直接解析 .ts 做类型检查。
+// strict 模式下未映射的入口相对引用直接报错（防悄悄 bundle 回单文件）。
+const rewriteExternal = (importMap, { strict = false } = {}) => ({
+  name: 'rewrite-external',
+  setup(build) {
+    build.onResolve({ filter: /^\.\.?\// }, (args) => {
+      if (args.kind === 'entry-point') return undefined
+      const mapped = importMap[args.path]
+      if (mapped) return { path: mapped, external: true }
+      if (strict) throw new Error(`[build] 入口出现未映射的相对引用: ${args.path}（请加入映射表）`)
+      return undefined
+    })
+  },
+})
+
+// 组装根的产物路径映射（键 = src/index.ts 视角的源引用，值 = lib/index.js 视角的产物引用）。
+const INDEX_IMPORT_MAP = {
+  './host/core/moduleRegistry.ts': './module-registry.js',
+  './host/io/ports.ts': './host-ports.js',
+  './host/io/logger.ts': './host/logger.js',
+  './host/core/paths.ts': './host/paths.js',
+  './host/core/version.ts': './host/version.js',
+  './host/io/diagnostics.ts': './host/diagnostics.js',
+  './host/io/settings.ts': './host/settings.js',
+  './host/io/scripts.ts': './host/scripts.js',
+  './host/io/icon.ts': './host/icon.js',
+  './host/io/shortcut.ts': './host/shortcut.js',
+  './host/io/pwa.ts': './host/pwa.js',
+  './host/io/tray.ts': './host/tray.js',
+  './host/io/rpcBridge.ts': './host/rpcBridge.js',
+  './host/services/closeToExit.ts': './host/services/closeToExit.js',
+  './host/services/autoOpen.ts': './host/services/autoOpen.js',
+  './host/services/launcherRpc.ts': './host/services/launcherRpc.js',
+  './host/services/modules.ts': './host/services/modules.js',
+}
+
+// 组装壳头部说明（esbuild 会剥离普通注释，产物经 banner 保留这段"装进 profile 后"管线文档）
+const INDEX_BANNER = [
+  '// dsh-native-launcher（构建产物——源码 src/index.ts，改这里没用）',
+  '//',
+  '// 装进 profile 后：',
+  '//   1. 在桌面生成一个快捷方式（默认名 "DSH WebUI"），幂等：已存在则跳过',
+  '//   2. 双击快捷方式 → wscript 静默运行 launcher.vbs（隐藏窗口，无 cmd 黑窗）',
+  '//   3. launcher.vbs 以 DSH_LAUNCHER=1 环境变量启动 dsh web',
+  '//   4. 插件检测到 DSH_LAUNCHER=1 → 等 webServer 就绪 → 自动打开默认浏览器',
+  '//   5. 设置页注册 "WebUI 启动器" 增强设置 section（读取配置 / 重新生成快捷方式）',
+  '//',
+  '// 平时从终端手动启动 dsh web（无 DSH_LAUNCHER）不会触发自动开浏览器。',
+  '// 零依赖：只用 node builtins + Windows 自带工具（wscript / powershell / cmd）。',
+].join('\n')
+
 const ENTRIES = [
   // P1：通知模块 host 半区（启动器本体 host 仍为手写，P2 接管）
   ['src/modules/notification/host/index.ts', 'lib/modules/notification/index.js', 'esm', 'node', { sourcemap: false }],
@@ -78,6 +132,18 @@ const ENTRIES = [
   ['src/host/io/rpcBridge.ts', 'lib/host/rpcBridge.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/services/launcherRpc.ts', 'lib/host/services/launcherRpc.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/services/modules.ts', 'lib/host/services/modules.js', 'esm', 'node', { sourcemap: false }],
+  // P2-B7b：模块注册表 + 端口适配 TS 化（产物路径不变，forged-official E2E 直接引这两个路径）；
+  // 注册表外链通知模块产物（不重复打包），registry.ts（CORE_API_VERSION 单一事实源）打入
+  [
+    'src/host/core/moduleRegistry.ts',
+    'lib/module-registry.js',
+    'esm',
+    'node',
+    { sourcemap: false, plugins: [rewriteExternal({ '../../modules/notification/host/index.ts': './modules/notification/index.js' })] },
+  ],
+  ['src/host/io/ports.ts', 'lib/host-ports.js', 'esm', 'node', { sourcemap: false }],
+  // P2-B7b：组装根产物化——lib/index.js 由 src/index.ts 生成（手写版退役）
+  ['src/index.ts', 'lib/index.js', 'esm', 'node', { sourcemap: false, banner: { js: INDEX_BANNER }, plugins: [rewriteExternal(INDEX_IMPORT_MAP, { strict: true })] }],
 ]
 
 let built = 0
