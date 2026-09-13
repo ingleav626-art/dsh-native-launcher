@@ -1,3 +1,43 @@
+# 开发工具（tools/）
+
+本目录是**开发/排障工具**，不随 npm 包发布（`package.json` 的 `files` 只含 `lib` / `assets` /
+`cordis.patch.yml` / `README.md` / `THIRD-PARTY-NOTICES`）——用户装的是 npm 上的正式版本，
+这里的东西只有改代码或排查问题时才用得上。
+
+## 工具索引
+
+| 工具 | 用途 | 什么时候用 |
+|---|---|---|
+| `build.mjs` | `src/` → `lib/` 构建（`npm run build`） | 改完 TS 源码 |
+| `compare.cjs` | 重构期的**函数级对账**（matched/differed/missing + 注释保留） | 迁移代码时每批必跑；本机 typescript 是 tsgo 预览版，**不能加 `--strip-types`**（两侧复制成 `.js` 再比） |
+| `log-inventory.mjs` | **日志点对账**（按打点文本比基线/目标，缺失即退出码 1） | 每次迁移 / 重构，与 compare 一起跑 |
+| `launch-timing.mjs` | 双击等价链路（vbs → launch.ps1 → dsh）启动耗时计时，终点 = socket ready | 验证启动优化；**会先停掉端口上的现有 dsh** |
+| `regen-launcher.mjs` | 按当前 `lib/` 产物重写真机启动脚本（launch.cmd / launch.ps1 / launcher*.vbs …） | 改了启动脚本模板但要立即真机验证，不想重启 dsh |
+| `verify-alpha-compat.mjs` | 在**物理隔离沙箱**（DSH_HOME/USERPROFILE 全指向临时目录）里验证插件对指定 dsh 版本的适配 | 跟进官方新版本前 |
+| `scan-sessions.mjs` | **只读**扫描 dsh 会话日志完整性（复刻官方持久化层的启动校验：zstd 帧 → 解压 → 头部断言） | 怀疑会话文件损坏导致启动校验失败 |
+| `test-tray-regression.ps1` | 托盘 E2E 回归（UIA 自动化，**会重启 dsh**） | 改托盘/启动链路/close-to-exit 后 |
+| `make-ico.mjs` | 生成 `assets/dsh-webui.ico` | 换图标 |
+| `probe/` | **启动性能探针套件**（见下） | 排查"启动慢 / 被系统节流"类问题 |
+| `compare-result-*.txt` | 对账报告（本地产物，已 gitignore、不进包） | 只看，不必提交 |
+
+## 启动性能探针（probe/）
+
+2026-09-13 查"快捷方式 40 秒 vs 命令行 8 秒"时建的仪器，之后同类问题直接复用：
+
+| 文件 | 作用 |
+|---|---|
+| `boot-series.mjs` | 从真机日志还原**启动耗时序列**（launch.log 的 `launching:` → native-launcher.log 首条 `[diag] node=`），一眼看出双峰/劣化——**不改动任何东西，先跑它** |
+| `run-contexts.mjs` | 同一份探针跑在四种启动上下文（explorer/直接 × 隐藏/显示/最小化），定位"是不是无窗口被系统限速" |
+| `loadprobe.mjs` | 合成负载分片测量：JS 自旋 / 原生 SHA256 / 文件读 的每片吞吐 + CPU 比 + 上下文切换；支持中途提权对照 |
+| `envprobe.mjs` | 落盘 explorer 启动与终端启动的 env / cwd / 进程创建延迟（先排除最廉价的一类病根） |
+| `counter-sample.ps1` | 每核 `% Processor Performance` / `% Processor Utility` / 频率采样（判"降频"还是"换核型"） |
+| `out/` | 探针原始数据（已 gitignore） |
+
+**注意**：探针会起隐藏的 wscript/explorer 子进程做对照实验——**这台机器上不要写"隐藏起子进程"的
+PowerShell 脚本**（会被 360 判 `HEUR:TrojanDownloader/PS.NetLoader.ae` 并删除脚本本体，2026-09-13 实锤）。
+
+---
+
 # 托盘回归测试工具（test-tray-regression.ps1）
 
 端到端验证 Windows 托盘（tray.ps1）生命周期的自动化脚本。**任何改动涉及
