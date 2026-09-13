@@ -280,7 +280,11 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
   // 两个 openScript 变体（无 PWA app id / 有 app id——openMode 分支内容不同）+ tray.ps1
   writeOpenScript(scriptDir, 3080, 'app', 'DSH WebUI', null)
   writeOpenScript(scriptDir, 3080, 'app', 'DSH WebUI', 'ofjcbbcobnobobmogpaohlojjnjfcplh')
+  // launch-ready.ps1 由 writeLauncherFiles 生成（launch.cmd 的 -File 调用目标）——语法也要过闸
+  const { writeLauncherFiles } = await import('../lib/host/scripts.js')
   writeTrayScript(scriptDir, 3080, join(scriptDir, 'dsh-webui.ico'), join(scriptDir, 'open-webui.ps1'), null)
+  // launch-ready.ps1 由 writeLauncherFiles 产出（launch.cmd 的 -File 调用目标）——语法同样过闸
+  writeLauncherFiles(scriptDir, 'dsh --profile web --no-open', 3080, join(scriptDir, 'tray.ps1'), join(scriptDir, 'open-webui.ps1'))
   // tray.ps1 语义结构守卫（2026-09-12 真机实锤补洞）：launch 段两处历史 bug 都是
   // "语法正确但语义错"——语法守卫抓不到，必须断言关键结构存在：
   // ① launch 目标 = launcher.vbs（双击快捷方式同链路，聚焦优先防双开——2026-09-12
@@ -346,7 +350,7 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
       assert.deepEqual(missing, [], `tray.ps1 调用了不存在的函数：${missing.join(', ')}（运行时 fatal，v18 同款）`)
     }
   }
-  for (const f of ['open-webui.ps1', 'tray.ps1']) {
+  for (const f of ['open-webui.ps1', 'tray.ps1', 'launch-ready.ps1']) {
     const p = join(scriptDir, f)
     assert.ok(existsSync(p), f + ' 未生成')
     const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',

@@ -287,7 +287,7 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     // dsh 就绪轮询留痕（性能数据源）：launchCommand 前台阻塞执行，"spawn→socket ready"
     // 原先是黑盒——改用 **Windows 自带 curl.exe + 纯 cmd 后台**（系统组件，行为=端口探测，
     // 启发式特征远轻于脚本解释器），每秒探测一次，就绪即落 `dsh ready` 行。
-    `  start "" /min cmd /c "for /l %i in (1,1,240) do ( curl -s -o nul --max-time 1 http://127.0.0.1:${String(port)}/ && >> "%LOGDIR%\\launch.log" echo [%date% %time%] dsh ready after launchCommand & exit /b & timeout /t 1 /nobreak >nul )"`,
+    `  start "" /min powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${join(launcherDir, 'launch-ready.ps1')}" ${String(port)} "${join(logsDirOf(launcherDir), 'launch.log')}"`,
     '  set DSH_LAUNCHER=1',
     '  set DSH_LAUNCHER=1',
     // launchCommand 依赖 PATH（默认 `dsh --profile web`）。命令缺失时回退 npx（默认 dsh 场景）
@@ -329,6 +329,23 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     ')',
   ].join('\r\n');
   mkdirSync(launcherDir, { recursive: true });
+  // launch-ready.ps1（独立产物）：dsh 后台就绪轮询 + 毫秒计时落盘——复杂逻辑放 PS 是因为
+  // **cmd 没有官方语法解析器**（batch 转义错只能靠跑真机才能炸出来：单 % 被吞、嵌套引号
+  // 截断，2026-09-13 实测），而 PS 有官方 Parser（E2E -1b 强制验证）。launch.cmd 只留一行
+  // -File 调用，参数直传，无嵌套引号。
+  const readyPs = [
+    "param([int]$Port = 3080, [string]$LogPath)",
+    "$t0 = Get-Date",
+    "for ($i = 0; $i -lt 240; $i++) {",
+    "  Start-Sleep -Milliseconds 500",
+    "  $ok = $false",
+    "  try { $null = Invoke-WebRequest -Uri ('http://127.0.0.1:' + $Port + '/') -UseBasicParsing -TimeoutSec 1; $ok = $true } catch { if ($_.Exception.Response) { $ok = $true } }",
+    "  if ($ok) { break }",
+    "}",
+    "$ms = [int]((Get-Date) - $t0).TotalMilliseconds",
+    "try { Add-Content -Path $LogPath -Value (('[' + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss.fff') + '] dsh socket ready after ' + $ms + 'ms (launchCommand)')) -Encoding UTF8 } catch { }",
+  ].join('\r\n');
+  writeFileSync(join(launcherDir, 'launch-ready.ps1'), readyPs, 'utf-8');
   writeFileSync(join(launcherDir, 'launch.cmd'), cmd, 'utf-8');
   const vbs = [
     'Set ws = CreateObject("WScript.Shell")',
