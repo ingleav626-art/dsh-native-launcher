@@ -105,7 +105,9 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   let notificationModule: NotificationModuleHandle | null = null;
 
   // 1. 生成静默启动脚本（launch.cmd 端口探测 + launcher.vbs 隐藏窗口）
-  logEnvDiagnostics(launcherDir, config, logMsg);
+  // 传 cfg（settings + patch 合并后的解析值）而非 patch 原始 config——否则用户改过
+  // launchCommand/shortcutName 后，[diag] 永远打印旧值与实际执行链路自相矛盾（issue #3）
+  logEnvDiagnostics(launcherDir, cfg, logMsg);
   const vbsPath = join(launcherDir, 'launcher.vbs');
   // agent 运行计数已收归 close-to-exit 服务（P2-B5，原 applyInner 级声明删除）
   try {

@@ -14,7 +14,10 @@ import { resolveDesktopPath } from '../core/paths.ts';
 
 /** 检测当前 dsh 版本（读 DSH_HOME 下 profile 依赖树里的 dsh 包）；找不到返回 ''。 */
 export function detectDshVersion(): string {
-  const home = process.env.DSH_HOME;
+  // DSH_HOME 未设置是常态而非特例（官方语义 = $DSH_HOME 优先，缺省回退 ~/.dsh）——
+  // 直接放弃会让版本探测恒空、rc.8 告警永不触发（issue #3，真实用户实测）。
+  // 回退逻辑与 launcherRpc 的 resolveDshHome 同源，两处实现保持一致。
+  const home = process.env.DSH_HOME || join(process.env.USERPROFILE ?? '', '.dsh');
   if (!home) return '';
   const candidates = [
     join(home, 'profiles', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
