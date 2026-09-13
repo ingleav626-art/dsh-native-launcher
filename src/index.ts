@@ -84,10 +84,12 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   // rc.8 适配：官方 dsh web 默认自动打开浏览器（普通标签页），会与我们插件的
   // PWA 应用窗口打开形成双开——启动命令加 --no-open 让官方让位，由插件
   // （autoOpen → open-webui.ps1，PWA 应用优先）负责打开。
-  // 版本门槛：--no-open 参数为 rc.8 起支持，旧版本检测到后日志提醒升级。
+  // 版本门槛（2026-09-13 用户定调）：适配与验证基准统一到官方最新版 0.1.5-rc.2，
+  // 不再针对更低版本做适配与验证——README「版本要求」与本行文案必须同步，
+  // 需要旧版本 dsh 的用户请使用对应的历史插件版本。
   const dshVersion = detectDshVersion();
-  if (dshVersion && !dshVersionGte(dshVersion, '0.1.0-rc.8')) {
-    logMsg(`WARNING: dsh ${dshVersion} is below 0.1.0-rc.8 — the launch command uses --no-open (rc.8+ only). Please upgrade: npm install -g @deepseek-ai/dsh@0.1.0-rc.8`);
+  if (dshVersion && !dshVersionGte(dshVersion, '0.1.5-rc.2')) {
+    logMsg(`WARNING: dsh ${dshVersion} is below 0.1.5-rc.2 — this plugin is adapted and verified against 0.1.5-rc.2 (task notifications rely on its projections/services). Please upgrade: npm install -g @deepseek-ai/dsh@0.1.5-rc.2`);
   }
   logMsg(`dsh version: ${dshVersion || '(unknown)'}`);
   // 注册官方设置卡片（rc.7+）：resolved = schema 默认值 → patch base（cordis.patch.yml）→ 用户设置文档。

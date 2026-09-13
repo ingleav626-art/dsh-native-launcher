@@ -343,6 +343,10 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     ")",
     "$ErrorActionPreference = 'Continue'",
     "$logPath = Join-Path $LauncherDir 'logs\\launch.log'",
+    // dsh 自身的标准输出（官方 banner / 官方告警）必须落盘：旧 launch.cmd 用 `>> dsh-boot.log 2>&1`
+    // 采过，迁到 launch.ps1 时漏了（2026-09-13 对账发现 dsh-boot.log 正好停在切换那一刻）。
+    // 日志唯一汇点原则：不落盘 = 不存在（用户查不到、维护者也拿不到）。
+    "$bootLog = Join-Path $LauncherDir 'logs\\dsh-boot.log'",
     "try { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logPath) | Out-Null } catch { }",
     "function Log-Launch([string]$msg) {",
     "  $line = '[' + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss.fff') + '] ' + $msg",
@@ -389,9 +393,17 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     // 提权**不在这里做**：脚本里「隐藏起子进程」会被 360 静态启发式判成
     // HEUR:TrojanDownloader/PS.NetLoader.ae 并把**脚本本体删掉**（2026-09-13 隔离矩阵实锤：
     // 删掉 Start-Process -WindowStyle Hidden 那一行即存活；保留它、只删 Invoke-Expression 照样被删）。
-    // 改由插件在自己的进程里自提（src/host/io/priority.ts，模块导入即执行），
-    // 这里的启动路径保持原样（Invoke-Expression，dsh 进程树形状不变）。
-    "Invoke-Expression $LaunchCommand",
+    // 改由插件在自己的进程里自提（src/host/io/priority.ts，模块导入即执行）。
+    // 启动路径仍是 Invoke-Expression（dsh 进程树形状不变），输出按脚本块重定向落 dsh-boot.log——
+    // 不往命令串里拼 `>>`，路径含空格/引号也不会被解析坏。
+    "try { Add-Content -Path $bootLog -Value (('===== ' + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss') + ' launchCommand start =====')) -Encoding UTF8 } catch { }",
+    // 编码必须显式统一成 UTF-8：PS 5.1 的 `*>>` 会把子进程输出按 **UTF-16LE** 落盘
+    // （实测每个字符之间夹 \0，文件不可读），而 dsh/node 写出的是 UTF-8；且 PS 按
+    // `[Console]::OutputEncoding` 解码子进程输出——不声明就会用本机 ANSI 码页（中文变乱码）。
+    // 先声明控制台输出编码为 UTF-8，再用 Out-File -Encoding utf8 追加，才等价于旧
+    // launch.cmd 的 `>> dsh-boot.log 2>&1`（原始 UTF-8 落盘）。
+    "try { [Console]::OutputEncoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false } catch { }",
+    "& { Invoke-Expression $LaunchCommand } 2>&1 | Out-File -FilePath $bootLog -Append -Encoding utf8",
     "Log-Launch ('launchCommand exited after ' + $sw.ElapsedMilliseconds + 'ms')",
   ].join('\r\n');
   // 必须带 UTF-8 BOM：Windows PowerShell 5.1 对**无 BOM 的 .ps1** 按 ANSI/GBK 读，
