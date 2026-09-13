@@ -281,6 +281,10 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     openLine,
     ') else (',
     `  >> "%LOGDIR%\\launch.log" echo [%date% %time%] probe=closed, starting via launchCommand`,
+    // dsh 就绪轮询留痕（性能数据源，issue：快捷方式启动 40s vs CMD 8s 的归因依赖它）：
+    // launchCommand 前台执行会阻塞本脚本，"spawn→socket ready"的黑盒原先无从记录——
+    // 用独立后台 powershell 每 500ms 探测，就绪即落 `dsh ready after Xms`，不阻塞不干扰。
+    `  start "" /min powershell -NoProfile -NonInteractive -WindowStyle Hidden -Command "$t0=Get-Date; for($i=0;$i -lt 240;$i++){ Start-Sleep -Milliseconds 500; $ok=$false; try { $null = Invoke-WebRequest -Uri 'http://127.0.0.1:${String(port)}/' -UseBasicParsing -TimeoutSec 1; $ok=$true } catch { if ($_.Exception.Response) { $ok=$true } }; if ($ok) { break } }; $d=[int]((Get-Date)-$t0).TotalMilliseconds; Add-Content -Path '%LOGDIR%\\launch.log' -Value (('[%date% %time%] dsh ready after ' + $d + 'ms (cold boot)')) -Encoding UTF8"`,
     '  set DSH_LAUNCHER=1',
     // launchCommand 依赖 PATH（默认 `dsh --profile web`）。命令缺失时回退 npx（默认 dsh 场景）
     // 并给出明确指引，而不是静默失败（否则表现为"双击只弹命令行、webUI 起不来"）。
