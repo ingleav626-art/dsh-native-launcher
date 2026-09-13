@@ -20,7 +20,7 @@ import type {
 } from './ports.ts'
 import { firstRuleError } from '../shared/rules.ts'
 import { createNotificationSettings, SETTINGS_NAMESPACE } from './settings.ts'
-import { createPresenceTracker } from './presence.ts'
+import { createPresenceTracker, isPresenceReport } from './presence.ts'
 import { createWatcher } from './watch.ts'
 
 /** 模块可调配置（来自启动器设置或 cordis patch）。 */
@@ -88,6 +88,8 @@ export { manifest } from '../manifest.ts'
 export function createNotificationModule(deps: NotificationModuleDeps): NotificationModule {
   // 存在态追踪器在 create 时就建：client 可能在 start 之前就上报（页面先于模块装好）
   const presence = createPresenceTracker()
+  /** 上一次留痕的存在态（只记"变化"，心跳每 5s 一次，逐条记会刷屏）。 */
+  let lastPresenceLogged = ''
   /** 测试通知的单调序号（同一毫秒连点两次也要拿到不同 tag，见 testNotify）。 */
   let testSequence = 0
   let pending: PendingChannel | undefined
@@ -147,6 +149,17 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
       if (!presence.report(raw)) {
         deps.logger.warn('[notification] 忽略形状非法的 presence 上报')
         return false
+      }
+      // 现场打点（2026-09-13 血的教训）：排查"人在眼前还是弹"时，日志里**一条 presence 痕迹都没有**，
+      // 只能靠"抑制行时有时无"反推心跳缺失。这里只记变化——心跳本身不记，否则每 5s 一行刷屏。
+      if (isPresenceReport(raw)) {
+        const key = `${raw.visible}|${raw.activeSessionId ?? ''}`
+        if (key !== lastPresenceLogged) {
+          lastPresenceLogged = key
+          deps.logger.info(
+            `[presence] 存在态变化：visible=${String(raw.visible)} activeSessionId=${raw.activeSessionId ?? '(未知)'}`,
+          )
+        }
       }
       return true
     },

@@ -413,3 +413,6 @@ if (failures.length > 0) {
   process.exit(1)
 }
 console.log(`\n✓ client 产物 ${STEP_TOTAL} 个场景全过（线格式 + 装配 + 日志回传 + 传感器接线健康）`)
+// client 现在带存在态心跳定时器（`setInterval`，见 src/client/presence.ts）——真实浏览器里它常驻，
+// 但在 Node 里会吊住事件循环让本进程不退出，故显式收尾（不是测试通过条件的一部分）。
+process.exit(0)

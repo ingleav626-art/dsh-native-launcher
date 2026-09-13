@@ -48,6 +48,9 @@ function readPresence(ctx: ClientContextLike): PresenceState {
   return activeSessionId === undefined ? { visible } : { visible, activeSessionId }
 }
 
+/** 心跳周期：必须显著小于 host 侧 `PRESENCE_TTL_MS`（15s），否则"状态不变"必然周期性过期。 */
+export const PRESENCE_HEARTBEAT_MS = 5_000
+
 /**
  * 启动存在态上报。
  * @param ctx - 官方 client ctx（只在组装根与本文件被触摸）。
@@ -57,24 +60,31 @@ export function startPresenceReporter(ctx: ClientContextLike, report: (state: Pr
   /** 上次上报值：状态没变就不发（页面事件很密集，去重是硬要求）。 */
   let lastKey = ''
 
-  const emit = (): void => {
+  const emit = (force = false): void => {
     const state = readPresence(ctx)
     const key = `${state.visible}|${state.activeSessionId ?? ''}`
-    if (key === lastKey) return
+    if (!force && key === lastKey) return
     lastKey = key
     report(state)
   }
 
   try {
     emit()   // 首报：页面刚加载（host 侧据此知道"有人在看某个会话"）
-    window.addEventListener('focus', emit)
-    window.addEventListener('blur', emit)
-    document.addEventListener('visibilitychange', emit)
+    window.addEventListener('focus', () => emit())
+    window.addEventListener('blur', () => emit())
+    document.addEventListener('visibilitychange', () => emit())
     const sessions = ctx.get('sessions') as SessionsServiceLike | undefined
     if (sessions?.list !== undefined && typeof sessions.list.subscribe === 'function') {
       // 切换会话（当前查看的会话变了）→ 存在态变了
-      sessions.list.subscribe(emit)
+      sessions.list.subscribe(() => emit())
     }
+    // 心跳（2026-09-13 真机实锤的缺失半边）：host 按 TTL 判"上报是否新鲜"，超过 15s 即当作
+    // "页面不在眼前"→ 放行通知。只靠上面那些**边沿事件**上报，用户坐在页面前超过 15 秒就会被
+    // 当成失联——这正是"人在眼前照样弹"的根因（日志里表现为时好时坏：挡住的那几次都发生在某个
+    // 页面事件之后的 15 秒内）。去重拦的是"事件风暴"，不能拿它当新鲜度。
+    // 浏览器对**后台标签页**的定时器有节流（隐藏后 ~1 次/分钟），于是语义天然正确：
+    // 前台 → 心跳新鲜 → 抑制；切后台/关页面 → 心跳变慢或停止 → TTL 过期 → 照常通知。
+    setInterval(() => emit(true), PRESENCE_HEARTBEAT_MS)
   } catch (error) {
     clientWarn(`[presence] 传感器启动失败（backgroundOnly 将退化为"总是通知"）：${String(error)}`)
   }
