@@ -350,7 +350,7 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
       assert.deepEqual(missing, [], `tray.ps1 调用了不存在的函数：${missing.join(', ')}（运行时 fatal，v18 同款）`)
     }
   }
-  for (const f of ['open-webui.ps1', 'tray.ps1', 'launch-ready.ps1']) {
+  for (const f of ['open-webui.ps1', 'tray.ps1', 'launch-ready.ps1', 'launch.ps1']) {
     const p = join(scriptDir, f)
     assert.ok(existsSync(p), f + ' 未生成')
     const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',

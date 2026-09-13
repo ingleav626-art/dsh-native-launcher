@@ -289,19 +289,18 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     // 启发式特征远轻于脚本解释器），每秒探测一次，就绪即落 `dsh ready` 行。
     `  start "" /min powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${join(launcherDir, 'launch-ready.ps1')}" ${String(port)} "${join(logsDirOf(launcherDir), 'launch.log')}"`,
     '  set DSH_LAUNCHER=1',
-    '  set DSH_LAUNCHER=1',
     // launchCommand 依赖 PATH（默认 `dsh --profile web`）。命令缺失时回退 npx（默认 dsh 场景）
     // 并给出明确指引，而不是静默失败（否则表现为"双击只弹命令行、webUI 起不来"）。
     // 含路径分隔符的命令视为绝对/相对路径，跳过检测直接执行。
     ...(launchCommand.split(/\s+/)[0].includes('\\') || launchCommand.split(/\s+/)[0].includes('/')
-      ? [`  ${launchCommand}`]
+      ? [`  ${launchCommand} < nul`]
       : launchCommand.split(/\s+/)[0] === 'dsh'
         ? [
             '  where dsh >nul 2>nul',
             '  if errorlevel 1 (',
             `    >> "%LOGDIR%\\launch.log" echo [%date% %time%] 'dsh' not in PATH, npx fallback`,
             "    echo [native-launcher] 'dsh' not found in PATH, trying npx fallback...",
-            `    npx --yes @deepseek-ai/dsh ${launchCommand.split(/\s+/).slice(1).join(' ')}`,
+            `    npx --yes @deepseek-ai/dsh ${launchCommand.split(/\s+/).slice(1).join(' ')} >> "%LOGDIR%\\dsh-boot.log" 2>&1`,
             '    if errorlevel 1 (',
             `      >> "%LOGDIR%\\launch.log" echo [%date% %time%] npx fallback failed`,
             '      echo [native-launcher] ERROR: both "dsh" and "npx @deepseek-ai/dsh" failed.',
@@ -311,7 +310,9 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
             '      timeout /t 15 >nul',
             '    )',
             '  ) else (',
-            `    ${launchCommand}`,
+            // stdout/stderr 落盘：dsh 官方启动输出（各 bundle 装配时间戳）留档——
+            // 启动性能归因与排错的数据源（快捷方式链 vs CMD 手动的 20s 差异靠它定位）
+            `    ${launchCommand} < nul >> "%LOGDIR%\\dsh-boot.log" 2>&1`,
             '  )',
           ]
         : [
@@ -323,12 +324,52 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
             '    echo [native-launcher] Closing in 15 seconds...',
             '    timeout /t 15 >nul',
             '  ) else (',
-            `    ${launchCommand}`,
+            `    ${launchCommand} < nul >> "%LOGDIR%\\dsh-boot.log" 2>&1`,
             '  )',
           ]),
     ')',
   ].join('\r\n');
   mkdirSync(launcherDir, { recursive: true });
+  // launch.ps1（测试版主入口，2026-09-13 用户拍板）：probe/启动全程可见输出 + 每步耗时落盘。
+  // 背景：cmd 形态的两个结构性问题——① 无官方语法解析器（batch 转义错只能真机炸）；
+  // ② 隐藏窗口 + 命令链形态被杀软启发式盯上（Backdoor/Meterpreter.p 误报查杀实录）。
+  // launch.cmd 保留生成作为回退备份，vbs 临时改调本脚本，测试结论后定去留。
+  const launchPs = [
+    "param(",
+    "  [int]$Port = 3080,",
+    "  [string]$LauncherDir,",
+    "  [string]$OpenScript,",
+    "  [string]$LaunchCommand = 'dsh --profile web --no-open'",
+    ")",
+    "$ErrorActionPreference = 'Continue'",
+    "$logPath = Join-Path $LauncherDir 'logs\\launch.log'",
+    "try { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logPath) | Out-Null } catch { }",
+    "function Log-Launch([string]$msg) {",
+    "  $line = '[' + (Get-Date -Format 'yyyy/MM/dd HH:mm:ss.fff') + '] ' + $msg",
+    "  Write-Host $line",
+    "  try { Add-Content -Path $logPath -Value $line -Encoding UTF8 } catch { }",
+    "}",
+    "Log-Launch ('launch.ps1 start (probe 127.0.0.1:' + $Port + ')')",
+    "$sw = [System.Diagnostics.Stopwatch]::StartNew()",
+    "$u = 'http://127.0.0.1:' + $Port + '/'",
+    "$tf = Join-Path $LauncherDir 'webui-url.txt'",
+    "try { if (Test-Path $tf) { $t = (Get-Content $tf -Raw).Trim(); if ($t) { $p2 = [System.Uri]$t; $b2 = [System.Uri]$u; if ($p2.Host -eq $b2.Host -and $p2.Port -eq $b2.Port) { $u = $t } } } } catch { }",
+    "$alive = $false",
+    "try { $null = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3; $alive = $true } catch { if ($_.Exception.Response) { $alive = $true } }",
+    "Log-Launch ('probe=' + $(if ($alive) { 'open - server already running' } else { 'closed, starting via launchCommand' }) + ' (probe took ' + $sw.ElapsedMilliseconds + 'ms)')",
+    "if ($alive) {",
+    "  Log-Launch ('focusing/opening via open-webui.ps1')",
+    "  & $OpenScript",
+    "  Log-Launch ('launch.ps1 exit (open path)')",
+    "  exit 0",
+    "}",
+    "$env:DSH_LAUNCHER = '1'",
+    "Log-Launch ('launching: ' + $LaunchCommand)",
+    "$sw.Restart()",
+    "Invoke-Expression $LaunchCommand",
+    "Log-Launch ('launchCommand exited after ' + $sw.ElapsedMilliseconds + 'ms')",
+  ].join('\r\n');
+  writeFileSync(join(launcherDir, 'launch.ps1'), launchPs, 'utf-8');
   // launch-ready.ps1（独立产物）：dsh 后台就绪轮询 + 毫秒计时落盘——复杂逻辑放 PS 是因为
   // **cmd 没有官方语法解析器**（batch 转义错只能靠跑真机才能炸出来：单 % 被吞、嵌套引号
   // 截断，2026-09-13 实测），而 PS 有官方 Parser（E2E -1b 强制验证）。launch.cmd 只留一行
@@ -351,7 +392,9 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     'Set ws = CreateObject("WScript.Shell")',
     // 窗口风格 1 = 显示控制台（测试版：0 = 隐藏被杀软启发式盯上的教训后，改为可见——
     // 用户能看到 probe/启动全过程，行为模式也更"正常"，降低误报概率。转正式时再评估收回）
-    `ws.Run "cmd /c ""${join(launcherDir, 'launch.cmd')}""", 1, False`,
+    // 测试版（2026-09-13 用户拍板）：显示窗口调 launch.ps1（全程可见+耗时落盘）；
+    // launch.cmd 保留生成作回退备份（用户要求），vbs 暂不调它。
+    `ws.Run "powershell -NoProfile -ExecutionPolicy Bypass -File ""${join(launcherDir, 'launch.ps1')}"" -Port ${String(port)} -LauncherDir ""${launcherDir}"" -OpenScript ""${join(launcherDir, 'open-webui.ps1')}""", 1, False`,
   ].join('\r\n');
   writeFileSync(join(launcherDir, 'launcher.vbs'), vbs, 'utf-8');
 }
