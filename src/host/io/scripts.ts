@@ -330,10 +330,10 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     ')',
   ].join('\r\n');
   mkdirSync(launcherDir, { recursive: true });
-  // launch.ps1（测试版主入口，2026-09-13 用户拍板）：probe/启动全程可见输出 + 每步耗时落盘。
+  // launch.ps1（主入口，2026-09-13 用户拍板）：probe/启动全程可见输出 + 每步耗时落盘。
   // 背景：cmd 形态的两个结构性问题——① 无官方语法解析器（batch 转义错只能真机炸）；
   // ② 隐藏窗口 + 命令链形态被杀软启发式盯上（Backdoor/Meterpreter.p 误报查杀实录）。
-  // launch.cmd 保留生成作为回退备份，vbs 临时改调本脚本，测试结论后定去留。
+  // launch.cmd 保留生成作为回退备份。
   const launchPs = [
     "param(",
     "  [int]$Port = 3080,",
@@ -354,22 +354,55 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     "$u = 'http://127.0.0.1:' + $Port + '/'",
     "$tf = Join-Path $LauncherDir 'webui-url.txt'",
     "try { if (Test-Path $tf) { $t = (Get-Content $tf -Raw).Trim(); if ($t) { $p2 = [System.Uri]$t; $b2 = [System.Uri]$u; if ($p2.Host -eq $b2.Host -and $p2.Port -eq $b2.Port) { $u = $t } } } } catch { }",
+    // 探测语义必须保持 HTTP（TCP 通 ≠ 服务活：托盘退出后端口未释放时，端口判定会误判 open
+    // → 前端拉起但后端已死 → 白屏，2026-09-12 真机实锤修复）；也**只能**是 HTTP——裸 TCP 异步
+    // 连接会被 360 静态判成 PS.NetLoader 并删掉脚本本体（2026-09-13 隔离矩阵实锤）。
+    // 唯一能安全砍掉的浪费：本机连 loopback 的**关闭端口**要白等 ~2.05s（丢包而非拒绝；
+    // 实测 Invoke-WebRequest 2052ms / TcpClient 2040ms）。
+    // 判据用 .NET 的**结构化监听表**，不是解析 netstat 文本——文本会踩两个跨机器坑：
+    //   ① PATH 里若有 MSYS/Git 版 netstat，状态词是 "LISTEN"（不是 LISTENING）→ 把"在听"
+    //      读成"没人听" → 误判 closed → 再起一个 dsh → EADDRINUSE 且页面永不打开；
+    //   ② 本地化输出。这正是本项目历史上最痛的故障（"双击永不唤起"），不能为省 2 秒去赌。
+    // 失败方向全部朝安全侧：
+    //   拿不到**非空**监听表（API 抛错/被限制）→ 逐字回退原 HTTP + token 探测（=今天的行为）
+    //   表拿到且该端口无人监听 → 直接 closed（无人监听 ⇒ 不可能有 HTTP 响应，结论必然一致）
+    //   表拿到且有人在听（含僵尸端口）→ 逐字走原 HTTP + token 探测，语义不变
+    "$table = @()",
+    "$listenOk = $false",
+    "try { $table = @([System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()); $listenOk = $table.Count -gt 0 } catch { $listenOk = $false }",
+    "$listeners = @($table | Where-Object { $_.Port -eq $Port })",
     "$alive = $false",
-    "try { $null = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3; $alive = $true } catch { if ($_.Exception.Response) { $alive = $true } }",
-    "Log-Launch ('probe=' + $(if ($alive) { 'open - server already running' } else { 'closed, starting via launchCommand' }) + ' (probe took ' + $sw.ElapsedMilliseconds + 'ms)')",
+    "if ($listenOk -and $listeners.Count -eq 0) { $via = 'tcp-table:no-listener' } else {",
+    "  if ($listenOk) { $via = 'http:listener-present' } else { $via = 'http:tcp-table-failed' }",
+    "  try { $null = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3; $alive = $true } catch { if ($_.Exception.Response) { $alive = $true } }",
+    "}",
+    "Log-Launch ('probe=' + $(if ($alive) { 'open - server already running' } else { 'closed, starting via launchCommand' }) + ' (probe took ' + $sw.ElapsedMilliseconds + 'ms, ' + $via + ')')",
     "if ($alive) {",
-    "  Log-Launch ('focusing/opening via open-webui.ps1')",
+    "  Log-Launch 'focusing/opening via open-webui.ps1'",
     "  & $OpenScript",
-    "  Log-Launch ('launch.ps1 exit (open path)')",
+    "  Log-Launch 'launch.ps1 exit (open path)'",
     "  exit 0",
     "}",
     "$env:DSH_LAUNCHER = '1'",
     "Log-Launch ('launching: ' + $LaunchCommand)",
     "$sw.Restart()",
+    // 提权**不在这里做**：脚本里「隐藏起子进程」会被 360 静态启发式判成
+    // HEUR:TrojanDownloader/PS.NetLoader.ae 并把**脚本本体删掉**（2026-09-13 隔离矩阵实锤：
+    // 删掉 Start-Process -WindowStyle Hidden 那一行即存活；保留它、只删 Invoke-Expression 照样被删）。
+    // 改由插件在自己的进程里自提（src/host/io/priority.ts，模块导入即执行），
+    // 这里的启动路径保持原样（Invoke-Expression，dsh 进程树形状不变）。
     "Invoke-Expression $LaunchCommand",
     "Log-Launch ('launchCommand exited after ' + $sw.ElapsedMilliseconds + 'ms')",
   ].join('\r\n');
-  writeFileSync(join(launcherDir, 'launch.ps1'), launchPs, 'utf-8');
+  // 必须带 UTF-8 BOM：Windows PowerShell 5.1 对**无 BOM 的 .ps1** 按 ANSI/GBK 读，
+  // 脚本里的中文注释会被误读（字节序列不巧时还会吞掉引号 → 整个脚本解析失败）。
+  // open-webui.ps1 早踩过这个坑（见 writeOpenScript），launch.ps1 同样要带——
+  // 否则跨机器/跨区域设置就是靠运气（本机 zh-CN 侥幸能跑，不代表别人能跑）。
+  writeFileSync(join(launcherDir, 'launch.ps1'), '\uFEFF' + launchPs, 'utf-8');
+  // 曾计划在此生成 priority.ps1（认领 dsh 的 node 进程并在启动器侧提权），已删除：
+  // 它必须由 launch.ps1 以「隐藏子 PowerShell」方式拉起，而那一行会被 360 静态判定为
+  // PS.NetLoader 并删掉 launch.ps1 本体（2026-09-13 隔离矩阵实锤）。提权改为插件自提
+  // （src/host/io/priority.ts）。教训记在 AGENTS.md Gotchas：本机不能出现"脚本隐藏起子进程"。
   // launch-ready.ps1（独立产物）：dsh 后台就绪轮询 + 毫秒计时落盘——复杂逻辑放 PS 是因为
   // **cmd 没有官方语法解析器**（batch 转义错只能靠跑真机才能炸出来：单 % 被吞、嵌套引号
   // 截断，2026-09-13 实测），而 PS 有官方 Parser（E2E -1b 强制验证）。launch.cmd 只留一行
@@ -390,13 +423,13 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
   writeFileSync(join(launcherDir, 'launch.cmd'), cmd, 'utf-8');
   const vbs = [
     'Set ws = CreateObject("WScript.Shell")',
-    // 窗口风格 1 = 显示控制台（测试版：0 = 隐藏被杀软启发式盯上的教训后，改为可见——
-    // 用户能看到 probe/启动全过程，行为模式也更"正常"，降低误报概率。转正式时再评估收回）
-    // 隐藏启动（默认体验）：probe=open 时聚焦已有窗口无感退出，probe=closed 时 dsh
-    // 隐藏前台运行（托盘/页面照常）。launch.ps1 无循环网络请求（单次探测）且 -File
-    // 直调，与被查杀的 launch.cmd（隐藏 cmd 嵌套 + 循环请求）形态不同——若再遇误报，
-    // 临时改回显示模式观察（, 1, False）。
+    // 窗口风格 0 = 完全隐藏（用户要求先验证效率模式假设：隐藏启动后到任务管理器看
+    // node.exe 是否被标记"效率模式"；对照 launcher-visible.vbs 风格 1）。
+    // 2026-09-13 实测数据（explorer 启动 = 等价双击）：隐藏 33.5s / 最小化 12.7s；
+    // 最小化曾是落地形态（避开系统自动后台节流），现按用户要求回隐藏做验证。
     `ws.Run "powershell -NoProfile -ExecutionPolicy Bypass -File ""${join(launcherDir, 'launch.ps1')}"" -Port ${String(port)} -LauncherDir ""${launcherDir}"" -OpenScript ""${join(launcherDir, 'open-webui.ps1')}""", 0, False`,
   ].join('\r\n');
   writeFileSync(join(launcherDir, 'launcher.vbs'), vbs, 'utf-8');
+  // 排错用显示版：同一 launch.ps1，仅窗口风格不同（1 = 显示，能看到启动全过程）
+  writeFileSync(join(launcherDir, 'launcher-visible.vbs'), vbs.replace(', 0, False', ', 1, False'), 'utf-8');
 }

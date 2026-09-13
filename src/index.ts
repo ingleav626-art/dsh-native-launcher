@@ -28,7 +28,15 @@ import { setupAutoOpen } from './host/services/autoOpen.ts';
 import { registerRpcFallbackBridge } from './host/io/rpcBridge.ts';
 import { setupLauncherRpc, type NotificationModuleHandle } from './host/services/launcherRpc.ts';
 import { setupModules } from './host/services/modules.ts';
+import { raiseOwnPriority, priorityName } from './host/io/priority.ts';
 import type { HostCtx, LauncherConfig } from './host/types.ts';
+
+// ── 进程优先级：本文件被 import 的那一刻就执行（插件最早能跑代码的时刻）──
+// Windows 对无可见窗口的进程在创建后约 3s 施加节流（2026-09-13 实测：交付算力 1/3、
+// 文件 IO 1/5、原生 SHA256 1/2，而进程 CPU 时间仍 1:1 记账）。父进程的优先级类不会被
+// 子进程继承，官方也没有 API 让启动器替我们设——所以在自己的进程里自提。
+// 为什么不在 launch.ps1 里做：脚本里「隐藏起子进程」会被 360 判成 PS.NetLoader 并删掉脚本本体。
+const priorityRaise = raiseOwnPriority();
 
 export const name = 'native-launcher';
 export const inject = ['webServer', 'connection', 'sessionProjections', 'settings'];
@@ -121,6 +129,12 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     const pwaAppId = findInstalledPwaAppId(port, launcherDir);
     logMsg(`environment: plugin=${PLUGIN_VERSION} node=${process.version} os=${os.type()} ${os.release()} (${os.arch()})`);
     logMsg(`environment: launcherDir=${launcherDir} pwaAppId=${pwaAppId ?? '(not installed — toast click will do nothing)'}`);
+    // 自提时刻要留痕：系统节流点在 node 启动后约 3s（实测），早于它 → 整段本体装载都不受影响。
+    // 用户日后报"启动又慢了"，先看这行：若优先级变回 Normal 或时刻晚于 3s，结论立刻有据。
+    logMsg(
+      `priority: ${priorityName(priorityRaise.before)} -> ${priorityName(priorityRaise.after)}` +
+        `（模块导入于 node 启动后 ${priorityRaise.atUptimeMs}ms，系统节流点约 3000ms）`,
+    );
     logMsg(`timing: pwa scan done ${elapsed()}`);
     writeOpenScript(launcherDir, port, openMode, shortcutName, pwaAppId);
     writeLauncherFiles(launcherDir, launchCommand, port, trayPath, openScriptPath);

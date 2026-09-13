@@ -49,6 +49,10 @@ export function logEnvDiagnostics(launcherDir: string, config: LauncherConfig, l
     "$o = @()",
     `$o += 'node=${process.version} ${process.platform}-${process.arch} DSH_LAUNCHER=${process.env.DSH_LAUNCHER ?? '(unset)'}'`,
     `$o += 'launchCommand=${JSON.stringify(lc)}'`,
+    // 进程优先级要留痕：Windows 会对无可见窗口的进程施加节流，本插件靠「优先级高于 Normal」
+    // 解除（src/host/io/priority.ts）。**必须读 dsh 自己的 pid**：这里的 $PID 指的是诊断用
+    // PowerShell 子进程，读它永远得到 Normal（2026-09-13 真机实测踩到：日志撒谎，差点误判提权失效）。
+    `$o += 'priority=' + ([string](Get-Process -Id ${String(process.pid)}).PriorityClass)`,
     ...(first && !first.includes('\\') && !first.includes('/')
       ? [`$w = & where.exe ${first} 2>$null; $o += 'where ${first}=' + ($(if ($w) { $w -join ';' } else { '(not found)' }))`]
       : []),
