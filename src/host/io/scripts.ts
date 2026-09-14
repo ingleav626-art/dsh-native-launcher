@@ -45,6 +45,7 @@ export function writeOpenScript(launcherDir: string, port: number, openMode: str
     "    if (-not ('WinAct' -as [type])) { Log-Open 'focus: WinAct type missing'; return $false }",
     '    $script:focused = [IntPtr]::Zero',
     '    $script:scanNote = \'no visible window\'',
+    '    $script:skipped = 0',
     '    $cb = [WinAct+EnumProc]{ param($hWnd, $lp)',
     '      if (-not [WinAct]::IsWindowVisible($hWnd)) { return $true }',
     '      $pid2 = 0',
@@ -52,17 +53,16 @@ export function writeOpenScript(launcherDir: string, port: number, openMode: str
     '      $sb = New-Object System.Text.StringBuilder 512',
     '      [WinAct]::GetWindowText($hWnd, $sb, 512) | Out-Null',
     '      $title = $sb.ToString()',
-    // 浏览器 chrome 窗口排除（2026-09-14 实测修复）：普通浏览器窗口标题自动带
-    // " - Microsoft Edge" 等后缀（浏览器行为，用户改不掉）；PWA 独立窗口没有。
-    // 实测事故：GitHub 仓库页标题含 "DeepSeek Harness" 被 title-match 误聚焦（跳浏览器
-    // 而非 PWA）。排除检查必须先于 pid-match——Edge 进程合并模型下普通窗口与 PWA 同 PID。
-    "      if ($title -match ' - Microsoft Edge| - Google Chrome| - Mozilla Firefox| - Brave') { return $true }",
+    // 浏览器 chrome 窗口排除（2026-09-14 实测修复）：普通浏览器窗口标题自动以浏览器名
+    // 结尾（"… - 个人 - Microsoft Edge"，其中分隔符/® 等非 ASCII 字符不定，字面匹配会 miss
+    // ——实测教训）。用**结尾匹配**：PWA 独立窗口标题 = 页面标题，不会以浏览器名结尾。
+    "      if ($title -match 'Edge$|Chrome$|Firefox$|Brave$') { $script:skipped++; return $true }",
     "      if ($targetPid -gt 0 -and $pid2 -eq $targetPid) { $script:focused = $hWnd; $script:scanNote = 'pid-match hwnd=' + $hWnd + ' title=[' + $title + ']'; return $false }",
     "      if ($titleRegex -and $title -match $titleRegex) { $script:focused = $hWnd; $script:scanNote = 'title-match hwnd=' + $hWnd + ' title=[' + $title + ']'; return $false }",
     '      return $true',
     '    }',
     '    [WinAct]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null',
-    "    Log-Open ('focus scan: ' + $script:scanNote + ' (pid=' + $targetPid + ' title=/' + $titleRegex + '/)')",
+    "    Log-Open ('focus scan: ' + $script:scanNote + ' (pid=' + $targetPid + ' title=/' + $titleRegex + '/ skipped-browser=' + $script:skipped + ')')",
     '    if ($script:focused -eq [IntPtr]::Zero) { return $false }',
     '    [WinAct]::ShowWindow($script:focused, 9) | Out-Null',
     '    [WinAct]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)',
