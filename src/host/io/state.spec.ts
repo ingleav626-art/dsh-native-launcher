@@ -67,12 +67,12 @@ describe('cleanupLegacyTrayTxt', () => {
   })
 })
 
-describe('webui-url 双写兼容', () => {
-  it('writeWebuiUrl 同时落 json（结构化）与 txt（launch.cmd 回退兼容）', () => {
+describe('webui-url 单写与读回退', () => {
+  it('writeWebuiUrl 只落 json（不产生 txt；用户要求彻底去 txt）', () => {
     writeWebuiUrl(dir, 'http://127.0.0.1:3080/?token=abc', 3080, '2026-09-14T11:35:00+08:00')
     const j = JSON.parse(readFileSync(join(dir, 'webui-url.json'), 'utf-8'))
     expect(j).toEqual({ url: 'http://127.0.0.1:3080/?token=abc', port: 3080, capturedAt: '2026-09-14T11:35:00+08:00' })
-    expect(readFileSync(join(dir, 'webui-url.txt'), 'utf-8')).toContain('token=abc')
+    expect(existsSync(join(dir, 'webui-url.txt'))).toBe(false)
     expect(readWebuiUrl(dir)?.port).toBe(3080)
   })
 

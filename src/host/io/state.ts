@@ -7,7 +7,8 @@
  * 兼容策略（一次迁移，读侧兜底）：
  *  - tray-state.json 不存在时回退读旧 txt（升级瞬间旧托盘还在写 txt 的场景）；
  *  - shortcut-registry.json 不存在时迁移旧 txt（行 = lnk 路径）；
- *  - webui-url.json 与 webui-url.txt 双写一个版本周期（launch.cmd 回退形态只认 txt）。
+ *  - webui-url.json 单写（2026-09-14 用户要求彻底去 txt：旧 txt 仅在升级瞬间可读，
+ *    不再产生新 txt 文件——回退形态 launch.cmd 读不到 token 时走基础 URL 探测，行为等价）。
  * 全部写入经 WriteAllText 语义（无 BOM）。
  */
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -95,10 +96,9 @@ export function readWebuiUrl(dir: string): WebuiUrlState | null {
   return null;
 }
 
-/** 写 WebUI URL：JSON 主格式 + txt 兼容双写（launch.cmd 回退形态只认 txt，0.4.2 移除双写）。 */
+/** 写 WebUI URL（单写 JSON，无 BOM）。 */
 export function writeWebuiUrl(dir: string, url: string, port: number, capturedAt: string): void {
   writeFileSync(webuiUrlPath(dir), JSON.stringify({ url, port, capturedAt }), 'utf-8');
-  writeFileSync(join(dir, 'webui-url.txt'), `${url}\n`, 'utf-8');
 }
 
 /** 桌面快捷方式登记（卸载定点清除依据）。 */

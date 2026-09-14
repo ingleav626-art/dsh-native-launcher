@@ -282,7 +282,8 @@ export function writeLauncherFiles(launcherDir: string, launchCommand: string, p
     // 2026-09-12 探测语义对齐（真机实锤修复）：此前裸 / 只认 2xx，而 dsh alpha.2+ 起裸路径
     // 恒 401（token 鉴权）→ 服务运行时永远误判 closed → 双击快捷方式永不唤起、反而试图再
     // 拉起实例（EADDRINUSE 静默失败）。修正两点（与 autoOpen / open-webui.ps1 同一套语义）：
-    // 1) 优先 webui-url.txt 的带 token URL（host+port 匹配才采用）
+    // 1) 旧版只认 webui-url.txt 的带 token URL（v0.4.1 起 host 单写 JSON、不再产生 txt——
+    //    此读取在新装环境自动跳过、走基础 URL 探测，行为等价；保留仅为兼容升级残留文件）
     // 2) 收到任何 HTTP 响应（含 401）都算 alive——能收到响应 = 服务在；连接拒绝/超时才算 closed
     `powershell -NoProfile -NonInteractive -WindowStyle Hidden -Command "$ErrorActionPreference = 'SilentlyContinue'; $u = 'http://127.0.0.1:${String(port)}/'; $tf = '${join(launcherDir, 'webui-url.txt')}'; if (Test-Path $tf) { $t = (Get-Content $tf -Raw).Trim(); if ($t) { $p2 = [System.Uri]$t; $b2 = [System.Uri]$u; if ($p2.Host -eq $b2.Host -and $p2.Port -eq $b2.Port) { $u = $t } } }; try { $null = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3; exit 0 } catch { if ($_.Exception.Response) { exit 0 }; exit 1 }"`,
     'if %errorlevel%==0 (',
