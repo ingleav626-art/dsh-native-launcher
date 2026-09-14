@@ -21,6 +21,7 @@ import { registerLauncherSettings } from './host/io/settings.ts';
 import { writeOpenScript, writeLauncherFiles } from './host/io/scripts.ts';
 import { ensureIcon, extractPngDataUrl } from './host/io/icon.ts';
 import { createDesktopShortcut, ensureStartupShortcut, startupLnkPath } from './host/io/shortcut.ts';
+import { readTrayState, writeWebuiUrl, readShortcutRegistry } from './host/io/state.ts';
 import { findInstalledPwaAppId, registerPwaRoutes } from './host/io/pwa.ts';
 import { TRAY_SCRIPT_VERSION, writeTrayScript, killExistingTrays, startTrayProcess } from './host/io/tray.ts';
 import { setupCloseToExit } from './host/services/closeToExit.ts';
@@ -50,7 +51,7 @@ function armExitCleanup(dir: string) {
     const target = pendingExitCleanup; pendingExitCleanup = null;
     if (!target) return;
     try {
-      for (const name of ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico', 'tray-pid.txt', 'tray-version.txt']) {
+      for (const name of ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico', 'tray-pid.txt', 'tray-version.txt', 'tray-state.json']) {
         const p = join(target, name);
         if (existsSync(p)) { try { unlinkSync(p); } catch { } }
       }
@@ -157,7 +158,8 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
       if (conn && typeof conn.authenticatedUrl === 'function') {
         const authUrl = conn.authenticatedUrl(`http://127.0.0.1:${String(port)}`);
         if (typeof authUrl === 'string' && authUrl.startsWith('http')) {
-          writeFileSync(join(launcherDir, 'webui-url.txt'), `${authUrl}\n`);
+          // 双写：json 主格式（结构化）+ txt 兼容（launch.cmd 回退形态只认 txt，0.4.2 移除）
+          writeWebuiUrl(launcherDir, authUrl, port, new Date().toISOString());
           authUrlCaptured = true;
           logMsg('webui token url captured for open-webui.ps1');
         }
@@ -202,7 +204,7 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     io: {
       nextSaveSeq, findInstalledPwaAppId, writeOpenScript, writeLauncherFiles, writeTrayScript,
       ensureIcon, createDesktopShortcut, extractPngDataUrl, resolveDesktopPath, logsDirOf,
-      killExistingTrays, startTrayProcess, ensureStartupShortcut, startupLnkPath,
+      killExistingTrays, startTrayProcess, ensureStartupShortcut, startupLnkPath, readShortcutRegistry,
     },
     logMsg, logWarn, logFail,
   });
@@ -219,14 +221,10 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     try {
       const trayPath = join(launcherDir, 'tray.ps1');
       if (existsSync(trayPath)) {
-        const versionFile = join(launcherDir, 'tray-version.txt');
-        let runningVersion = 0;
-        try {
-          runningVersion = parseInt(readFileSync(versionFile, 'utf-8').trim(), 10) || 0;
-        } catch {
-          // 无版本文件 = 旧托盘（未写版本）或未运行
-        }
-        // 先验证托盘进程是否真的在跑（version 文件可能是残留：进程已死但文件还在）
+        // 托盘状态读取收口 io/state.ts（v22 起为 tray-state.json，自动回退旧 txt）
+        const trayState = readTrayState(launcherDir);
+        const runningVersion = trayState?.scriptVersion ?? 0;
+        // 先验证托盘进程是否真的在跑（状态文件可能是残留：进程已死但文件还在）
         // 注意：进程名可能是 powershell.exe 或 pwsh.exe（用户可能用 PowerShell 7 手动启动过托盘）
         const probeCmd = [
           "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe' or Name='pwsh.exe'\" -ErrorAction SilentlyContinue |",

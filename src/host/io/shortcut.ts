@@ -2,10 +2,11 @@
  * 桌面快捷方式（L2 副作用边界）：.lnk 创建 + 实名登记（卸载定点清除的依据）。
  * 从 index.js 原样搬入（P2-B3）。
  */
-import { appendFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { LogFn } from '../types.ts';
+import { readShortcutRegistry, writeShortcutRegistry } from './state.ts';
 import { resolveDesktopPath } from '../core/paths.ts';
 
 /**
@@ -47,12 +48,12 @@ export function createDesktopShortcut(shortcutName: string, vbsPath: string, ico
   try {
     spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', windowsHide: true });
     logMsg(`shortcut created: ${lnk}`);
-    // 实名登记：卸载时只定点清除登记过的 lnk，绝不全盘扫描桌面（误删比不删恐怖）
+    // 实名登记：卸载时只定点清除登记过的 lnk，绝不全盘扫描桌面（误删比不删恐怖）。
+    // v0.4.1 起为 shortcut-registry.json（带创建时刻；旧 txt 由 state.ts 自动迁移）。
     try {
-      const regPath = join(launcherDir, 'shortcut-registry.txt');
-      const existing = existsSync(regPath) ? readFileSync(regPath, 'utf-8') : '';
-      if (!existing.split(/\r?\n/).map(s => s.trim()).filter(Boolean).includes(lnk)) {
-        appendFileSync(regPath, lnk + '\r\n');
+      const existing = readShortcutRegistry(launcherDir);
+      if (!existing.some((e) => e.path === lnk)) {
+        writeShortcutRegistry(launcherDir, [...existing, { path: lnk, createdAt: new Date().toISOString() }]);
       }
     } catch { /* 登记失败不影响快捷方式本身 */ }
   } catch (error) {

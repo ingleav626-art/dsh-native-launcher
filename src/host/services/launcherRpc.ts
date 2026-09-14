@@ -41,6 +41,7 @@ export interface LauncherIo {
   startTrayProcess(launcherDir: string, trayPath: string, preferPersistent: boolean, logMsg: LogFn, logWarn: LogFn, logFail: LogFn): void
   ensureStartupShortcut(shortcutName: string, vbsPath: string, iconPath: string | null, enabled: boolean, logMsg: LogFn): void
   startupLnkPath(shortcutName: string): string
+  readShortcutRegistry(launcherDir: string): { path: string; createdAt: string }[]
 }
 
 export interface LauncherRpcDeps {
@@ -311,12 +312,8 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               //    绝不全盘扫描桌面（误删比不删恐怖）；登记文件由 createDesktopShortcut 成功时写入。
               const desktop = io.resolveDesktopPath() ?? '';
               const targets = new Set<string>();
-              const regFile = join(launcherDir, 'shortcut-registry.txt');
-              try {
-                if (existsSync(regFile)) {
-                  for (const line of readFileSync(regFile, 'utf-8').split(/\r?\n/).map(s => s.trim()).filter(Boolean)) targets.add(line);
-                }
-              } catch { }
+              // 登记读取收口 io/state.ts（json 主格式 + 旧 txt 回退）
+              for (const entry of io.readShortcutRegistry(launcherDir)) targets.add(entry.path);
               // 实时权威名（settings 文档）优先，启动快照名兜底——两者都纳入定点清除
               const liveCfgU = deps.settingsScope ? (deps.settingsScope.get() ?? {}) : {};
               const liveShortcutName = String((liveCfgU as LauncherConfig).shortcutName || '').trim() || deps.shortcutName;
@@ -342,10 +339,11 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               logU('INFO', 'STEP 3/5 artifacts: begin (uninstall.log is exempt from this list)');
               // 日志统一在 logs/ 子目录（用户排错时整包发这一个文件夹），脚本与状态文件在根目录
               const artifacts = ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico',
+                'shortcut-registry.json', 'shortcut-registry.txt', 'webui-url.json',
                 join('logs', 'native-launcher.log'), join('logs', 'native-launcher.prev.log'),
                 join('logs', 'launch.log'), join('logs', 'tray-exit.log'), join('logs', 'tray-notify.log'),
                 join('logs', 'pwa-scan.log'), join('logs', 'open-webui.log'), join('logs', 'test-results.log'),
-                'tray-notify.json', 'tray-version.txt'];
+                'tray-notify.json', 'tray-version.txt', 'tray-pid.txt', 'tray-state.json', 'webui-url.txt'];
               let removed = 0;
               const failedFiles: string[] = [];
               for (const name of artifacts) {

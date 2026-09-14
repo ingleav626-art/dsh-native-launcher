@@ -10,13 +10,15 @@ import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { LogFn } from '../types.ts';
 import { logsDirOf } from '../core/paths.ts';
+import { readTrayState, cleanupLegacyTrayTxt } from './state.ts';
 
 /**
  * 托盘脚本版本号（writeTrayScript 与 applyInner 共用）：
- * 托盘启动时把此版本写入 launcherDir/tray-version.txt，
- * apply 对比版本，旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
+ * 托盘启动时把 PID/版本/启动时刻写入 launcherDir/tray-state.json（v22 起替代
+ * tray-pid.txt + tray-version.txt 裸 txt，见 io/state.ts），apply 对比版本，
+ * 旧托盘进程被自动结束并换新（重启 dsh 也能更新托盘）。
  */
-export const TRAY_SCRIPT_VERSION = 21;
+export const TRAY_SCRIPT_VERSION = 22;
 
 /** 生成托盘脚本（PowerShell + WinForms NotifyIcon，系统自带零依赖；单实例互斥 + 两项菜单 + 任务通知气泡）。
  *  appId：已装 PWA 的应用 id（可选）——"退出 WebUI"用它精确关闭本站应用窗口；
@@ -26,13 +28,16 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
   const logsDirInline = logsDirOf(launcherDir).replace(/'/g, "''");
   const exitLogInline = join(logsDirOf(launcherDir), 'tray-exit.log').replace(/'/g, "''");
   const pidFileInline = join(launcherDir, 'tray-pid.txt').replace(/'/g, "''");
+  const stateFileInline = join(launcherDir, 'tray-state.json').replace(/'/g, "''");
   const ps = [
     // ── 白箱化：第一行先落出生证明，全局 trap 收尸，PID 实名注册 ──
     // 自建日志目录：托盘可能由快捷方式链在 dsh 之前/之后拉起，目录缺失时 Add-Content 会失败
     `$logsDir = '${logsDirInline}'`,
     `try { New-Item -ItemType Directory -Force -Path $logsDir | Out-Null } catch { }`,
     `$exitLogPath = '${exitLogInline}'`,
-    `try { Set-Content -Path '${pidFileInline}' -Value ($PID.ToString()) -NoNewline -Encoding UTF8 } catch { }`,
+    // 出生登记：写 tray-state.json（v22 起替代 tray-pid.txt；scriptVersion 编译期已知，
+    // mutex 拿到后覆盖写全量防双实例竞态）。WriteAllText 无 BOM（txt 时代的 BOM 污染教训）。
+    `try { [IO.File]::WriteAllText('${stateFileInline}', (@{ pid = $PID; scriptVersion = ${TRAY_SCRIPT_VERSION}; startedAt = (Get-Date -Format 'o') } | ConvertTo-Json -Compress)) } catch { }`,
     `try { Add-Content -Path $exitLogPath -Value (\'[boot v${TRAY_SCRIPT_VERSION}] pid=\' + $PID + \' at \' + (Get-Date -Format \'HH:mm:ss.fff\')) -Encoding UTF8 } catch { }`,
     `trap { try { Add-Content -Path $exitLogPath -Value (\'[fatal v${TRAY_SCRIPT_VERSION}] pid=\' + $PID + \' :: \' + $_.Exception.Message + \' @ \' + $_.InvocationInfo.PositionMessage) -Encoding UTF8 } catch { }; break }`,
     "$ErrorActionPreference = 'SilentlyContinue'",
@@ -53,7 +58,8 @@ export function writeTrayScript(launcherDir: string, port: number, iconPath: str
     // 版本标记：拿到互斥体后才写（覆盖写，避免追加累积）；apply 用它做托盘自更新
     "# 版本标记：与 lib/index.js 的 TRAY_SCRIPT_VERSION 一致（apply 用它做托盘自更新）",
     `$trayVersion = ${TRAY_SCRIPT_VERSION}`,
-    `try { Set-Content -Path '${join(launcherDir, 'tray-version.txt').replace(/'/g, "''")}' -Value ($trayVersion.ToString()) -NoNewline -Encoding UTF8 } catch { }`,
+    // mutex 拿到后覆盖写 tray-state.json（出生时已写过一次，此处重写防双实例竞态）
+    `try { [IO.File]::WriteAllText('${stateFileInline}', (@{ pid = $PID; scriptVersion = $trayVersion; startedAt = (Get-Date -Format 'o') } | ConvertTo-Json -Compress)) } catch { }`,
     'try { Add-Content -Path $exitLogPath -Value (\'[tray started \' + (Get-Date -Format \'HH:mm:ss.fff\') + \']\') -Encoding UTF8 } catch { }',
     '',
     `$url = '${url}'`,
@@ -340,17 +346,24 @@ export function buildTrayProbeCmd(launcherDir: string): string {
 
 // 杀掉现有托盘进程并同步等待退出（避免 Mutex 冲突）。返回被杀 PID 列表文本。
 export function killExistingTrays(launcherDir: string, logMsg: LogFn): string {
-  // 精确优先：tray-pid.txt（托盘出生时实名注册的 PID）；CIM cmdline 扫描兜底
-  const pidFile = join(launcherDir, 'tray-pid.txt');
+  // 精确优先：tray-state.json 的 PID（托盘出生时实名登记，v22 起为 JSON）；旧 txt 回退；CIM cmdline 扫描兜底
+  let registeredPid: number | null = null;
   try {
-    if (existsSync(pidFile)) {
-      const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
-      if (Number.isInteger(pid) && pid > 0) {
-        spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 8000 });
-        logMsg(`[tray] killed registered tray-pid ${pid} (from tray-pid.txt)`);
-      }
+    const state = readTrayState(launcherDir);
+    if (state) registeredPid = state.pid;
+  } catch { /* state unreadable - sweep below still applies */ }
+  try {
+    if (registeredPid !== null && registeredPid > 0) {
+      spawnSync('taskkill', ['/PID', String(registeredPid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 8000 });
+      logMsg(`[tray] killed registered tray-pid ${registeredPid} (from tray-state)`);
     }
-  } catch { /* pid file unreadable - sweep below still applies */ }
+  } catch { /* ignore */ }
+  // 迁移收尾：state.json 已就绪时清掉旧 txt（失败静默留待下次）
+  if (registeredPid !== null) {
+    try {
+      if (existsSync(join(launcherDir, 'tray-state.json'))) cleanupLegacyTrayTxt(launcherDir);
+    } catch { /* ignore */ }
+  }
   const killCmd = [
     "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe' or Name='pwsh.exe'\" -ErrorAction SilentlyContinue |",
     `Where-Object { $_.CommandLine -and $_.CommandLine.Contains('tray.ps1') -and $_.CommandLine.Contains('${launcherDir.replace(/'/g, "''")}') -and $_.ProcessId -ne $PID } |`,
