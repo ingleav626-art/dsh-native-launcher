@@ -137,3 +137,67 @@ export function writeShortcutRegistry(dir: string, entries: ShortcutEntry[]): vo
     if (existsSync(txt)) unlinkSync(txt);
   } catch { /* ignore */ }
 }
+
+/**
+ * 遗留状态文件统一迁移（apply 每次调用，幂等）：把历史版本的裸 txt 状态文件
+ * 转成 JSON 后清理。2026-09-15 沙箱实测发现三类漏洞——webui-url.txt 无清理逻辑、
+ * tray txt 只在托盘 kill 分支清理、shortcut txt 只在创建快捷方式时迁移——
+ * 导致升级后旧 txt 长期残留。此处集中处理，与各读写路径的"顺手迁移"互补。
+ * 返回处理说明列表（供日志）。
+ */
+export function migrateLegacyStateFiles(dir: string): string[] {
+  const notes: string[] = [];
+  // 1) tray-pid.txt + tray-version.txt → tray-state.json（仅在 json 缺失且两者可读时合成，保留信息）
+  const hadTrayTxt = existsSync(join(dir, 'tray-pid.txt')) || existsSync(join(dir, 'tray-version.txt'));
+  try {
+    const pidTxt = join(dir, 'tray-pid.txt');
+    const verTxt = join(dir, 'tray-version.txt');
+    const hasPid = existsSync(pidTxt);
+    const hasVer = existsSync(verTxt);
+    if ((hasPid || hasVer) && !existsSync(trayStatePath(dir))) {
+      const pid = hasPid ? parseInt(cleanTxt(readFileSync(pidTxt, 'utf-8')), 10) : NaN;
+      const ver = hasVer ? parseInt(cleanTxt(readFileSync(verTxt, 'utf-8')), 10) : NaN;
+      if (Number.isInteger(pid) && pid > 0 && Number.isInteger(ver)) {
+        writeTrayState(dir, { pid, scriptVersion: ver, startedAt: '' });
+        notes.push(`tray-state.json ← tray-pid.txt+tray-version.txt`);
+      }
+    }
+  } catch { /* ignore */ }
+  cleanupLegacyTrayTxt(dir);
+  if (hadTrayTxt) {
+    notes.push(
+      existsSync(join(dir, 'tray-pid.txt')) || existsSync(join(dir, 'tray-version.txt'))
+        ? 'tray txt cleanup deferred (in use)'
+        : 'tray-pid.txt/tray-version.txt removed',
+    );
+  }
+  // 2) webui-url.txt → webui-url.json（json 缺失时迁移内容，port 从 URL 解析；随后删 txt）
+  try {
+    const urlTxt = join(dir, 'webui-url.txt');
+    if (existsSync(urlTxt)) {
+      if (!existsSync(webuiUrlPath(dir))) {
+        const url = cleanTxt(readFileSync(urlTxt, 'utf-8'));
+        const port = Number(new URL(url).port) || 0;
+        if (url) { writeWebuiUrl(dir, url, port, ''); notes.push('webui-url.json ← webui-url.txt'); }
+      }
+      unlinkSync(urlTxt);
+      notes.push('webui-url.txt removed');
+    }
+  } catch { /* ignore */ }
+  // 3) shortcut-registry.txt → shortcut-registry.json（json 缺失时迁移内容；随后无条件删 txt——
+  //    2026-09-15 复验实锤：json 已存在时旧 txt 会残留，因为 readShortcutRegistry 的迁移只在 json 缺失时走）
+  try {
+    const txt = join(dir, 'shortcut-registry.txt');
+    if (existsSync(txt)) {
+      if (!existsSync(shortcutPath(dir))) {
+        const entries = readShortcutRegistry(dir);
+        notes.push(`shortcut-registry.json ← txt (${String(entries.length)} entries)`);
+      }
+      if (existsSync(txt)) unlinkSync(txt);
+      notes.push(
+        existsSync(txt) ? 'shortcut-registry.txt cleanup deferred' : 'shortcut-registry.txt removed',
+      );
+    }
+  } catch { /* ignore */ }
+  return notes;
+}

@@ -11,6 +11,7 @@ import {
   readTrayState, writeTrayState, cleanupLegacyTrayTxt,
   readWebuiUrl, writeWebuiUrl,
   readShortcutRegistry, writeShortcutRegistry,
+  migrateLegacyStateFiles,
 } from './state.ts'
 
 let dir: string
@@ -101,5 +102,53 @@ describe('shortcut-registry 旧 txt 迁移', () => {
     writeShortcutRegistry(dir, [{ path: 'C:\\new.lnk', createdAt: '2026-09-14T11:40:00+08:00' }])
     expect(existsSync(join(dir, 'shortcut-registry.txt'))).toBe(false)
     expect(readShortcutRegistry(dir)).toEqual([{ path: 'C:\\new.lnk', createdAt: '2026-09-14T11:40:00+08:00' }])
+  })
+})
+
+describe('migrateLegacyStateFiles（apply 级统一迁移，2026-09-15 沙箱实测补充）', () => {
+  it('4 个旧 txt 齐全时：全部迁移为 JSON 并清理（此前实测会全部残留）', () => {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'tray-pid.txt'), '\uFEFF17844', 'utf-8')
+    writeFileSync(join(dir, 'tray-version.txt'), '\uFEFF21', 'utf-8')
+    writeFileSync(join(dir, 'webui-url.txt'), 'http://127.0.0.1:3080/?token=old\n', 'utf-8')
+    writeFileSync(join(dir, 'shortcut-registry.txt'), 'C:\\a\\x.lnk\r\n', 'utf-8')
+
+    const notes = migrateLegacyStateFiles(dir)
+
+    // 断言：四个 txt 全部清理，三个 JSON 齐备且内容正确
+    expect(existsSync(join(dir, 'tray-pid.txt'))).toBe(false)
+    expect(existsSync(join(dir, 'tray-version.txt'))).toBe(false)
+    expect(existsSync(join(dir, 'webui-url.txt'))).toBe(false)
+    expect(existsSync(join(dir, 'shortcut-registry.txt'))).toBe(false)
+    expect(readTrayState(dir)).toEqual({ pid: 17844, scriptVersion: 21, startedAt: '' })
+    expect(readWebuiUrl(dir)?.url).toContain('token=old')
+    expect(readWebuiUrl(dir)?.port).toBe(3080) // port 从 URL 解析
+    expect(readShortcutRegistry(dir).map((e) => e.path)).toEqual(['C:\\a\\x.lnk'])
+    expect(notes.length).toBeGreaterThan(0)
+  })
+
+  it('JSON 已存在时：旧 txt 直接清理，不覆盖新数据', () => {
+    mkdirSync(dir, { recursive: true })
+    writeTrayState(dir, { pid: 999, scriptVersion: 22, startedAt: '2026-09-15T21:00:00+08:00' })
+    writeFileSync(join(dir, 'tray-pid.txt'), '17844', 'utf-8')
+    writeFileSync(join(dir, 'tray-version.txt'), '21', 'utf-8')
+    // shortcut 的 JSON 已存在时旧 txt 也必须清理（2026-09-15 端到端复验实锤的漏洞）
+    writeShortcutRegistry(dir, [{ path: 'C:\\new.lnk', createdAt: '2026-09-15T21:00:00+08:00' }])
+    writeFileSync(join(dir, 'shortcut-registry.txt'), 'C:\\old.lnk\r\n', 'utf-8')
+
+    migrateLegacyStateFiles(dir)
+
+    expect(existsSync(join(dir, 'tray-pid.txt'))).toBe(false)
+    expect(readTrayState(dir)?.pid).toBe(999) // 未被旧 txt 覆盖
+    expect(existsSync(join(dir, 'shortcut-registry.txt'))).toBe(false)
+    expect(readShortcutRegistry(dir).map((e) => e.path)).toEqual(['C:\\new.lnk']) // 新数据保留
+  })
+
+  it('无旧文件时：幂等零操作（可每次 apply 调用）', () => {
+    mkdirSync(dir, { recursive: true })
+    const notes1 = migrateLegacyStateFiles(dir)
+    const notes2 = migrateLegacyStateFiles(dir)
+    expect(notes1).toEqual([])
+    expect(notes2).toEqual([])
   })
 })

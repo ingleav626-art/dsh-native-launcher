@@ -21,7 +21,7 @@ import { registerLauncherSettings } from './host/io/settings.ts';
 import { writeOpenScript, writeLauncherFiles } from './host/io/scripts.ts';
 import { ensureIcon, extractPngDataUrl } from './host/io/icon.ts';
 import { createDesktopShortcut, ensureStartupShortcut, startupLnkPath } from './host/io/shortcut.ts';
-import { readTrayState, writeWebuiUrl, readShortcutRegistry } from './host/io/state.ts';
+import { readTrayState, writeWebuiUrl, readShortcutRegistry, migrateLegacyStateFiles } from './host/io/state.ts';
 import { findInstalledPwaAppId, registerPwaRoutes } from './host/io/pwa.ts';
 import { TRAY_SCRIPT_VERSION, writeTrayScript, killExistingTrays, startTrayProcess } from './host/io/tray.ts';
 import { setupCloseToExit } from './host/services/closeToExit.ts';
@@ -145,6 +145,16 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
     logMsg(`timing: launcher scripts written ${elapsed()}`);
   } catch (error) {
     logMsg(`launcher script failed: ${error}`);
+  }
+
+  // 遗留状态文件迁移（v0.4.2）：历史裸 txt（tray-pid/tray-version/webui-url/shortcut-registry）
+  // → JSON 后清理。此前各路径只在"顺手"时迁移（创建快捷方式/托盘 kill 分支），实测会长期残留
+  // （2026-09-15 沙箱验证：4 个 txt 全部残留）——此处集中执行，幂等，无旧文件时零操作。
+  try {
+    const migrated = migrateLegacyStateFiles(launcherDir);
+    if (migrated.length) logMsg(`legacy state files handled: ${migrated.join('; ')}`);
+  } catch (error) {
+    logMsg(`legacy state migration failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   // alpha.2+ 的 Web UI 用一次性进程 token 鉴权（无 token 访问 UI/API 返回 401）。
