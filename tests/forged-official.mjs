@@ -184,7 +184,13 @@ class ForgedDsh {
         },
       },
       // `ctx.get(name)` 是 cordis 的**免守卫**取服务面（客户端传感器与宿主端口都走它）
-      get: name => (name === 'sessions' ? this.sessions : undefined),
+      // getSettingsService 走 ctx.get('settings')（settings 不在插件 inject 清单）——
+      // 伪造 get 面必须能返回本服务的真身，否则旧机制路径拿不到 settings
+      get: name => {
+        if (name === 'sessions') return this.sessions
+        if (name === 'settings') return ctx.settings
+        return undefined
+      },
     }
     // cordis 4 的 inject 守卫：**未在插件 inject 清单里声明的服务，属性访问直接抛**
     // （2026-09-11 沙箱实测的 S1：宿主写 `ctx.sessions` → 抛 → 通知模块整体不加载）。
@@ -443,6 +449,116 @@ await step('步骤 0b｜容器护栏与装配（apiVersion 一致；settings 注
   assert.ok(transcript.some(l => l.includes('已装配')), '装配完成日志缺失')
   globalThis.__mod = instance
   globalThis.__dispose = dispose
+})
+
+// 步骤 0c｜新机制（0.1.7+ SettingsForms）端到端 + **契约形状守卫**
+// 伪造面取自官方 0.1.7-rc.1 的 .d.ts 与沙箱探针实证（形状漂移 = 本步骤失败，这就是"官方改参数"的闸）：
+//   describe(options?) : SettingsDescriptor[]  ← 行含 { ns, value, revision, base?, user?, autoGenerate, applies }
+//   update(ns, patch, expectedRevision?) : Promise<void>
+//   replace(ns, section, expectedRevision?) : Promise<void>
+//   configure(presentation: { auto?: boolean }) : Disposer
+//   变更事件：ctx.on('settings/document-updated', (ns, revision))
+// 我方必须做到：① 走 forms 而非 register（0.1.7 已无 register）；② 通知设置读写落在**主 entry 的
+// notification 子段**（官方 describe 只认 profile entry，模块自有 ns 不是 entry）。
+await step('步骤 0c｜forms 机制（0.1.7+）：挂载走 describe/update，读写限在 notification 子段', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-forms-'))
+  const formsLog = [] // 独立缓冲区：不污染主 transcript 的旧机制断言
+  const calls = []
+  const NOTIF = { enabled: true, notifyCompleted: true, notifyError: true, rules: [] }
+  // 独立的伪造实例：投影注册是"单写者"（同 key 重复注册会抛），不能复用主流程的 dsh
+  const formsDsh = new ForgedDsh()
+  const formsSettings = {
+    // describe 契约：官方无参调用
+    describe: (...args) => {
+      calls.push(`describe(argc=${args.length})`)
+      return [
+        { ns: 'native-launcher', value: { port: 3080, shortcutName: 'DSH WebUI', notification: NOTIF }, revision: 0, autoGenerate: true, applies: 'live' },
+      ]
+    },
+    // update 契约：**至少两参**（ns, patch）；第三参 expectedRevision 可选
+    update: async (ns, patch, revision) => {
+      calls.push(`update(ns=${ns}, patchKeys=${Object.keys(patch).join('|')}, revision=${revision === undefined ? 'omitted' : revision})`)
+    },
+    replace: async (ns) => { calls.push(`replace(ns=${ns})`) },
+    configure: (presentation) => { calls.push(`configure(auto=${String(presentation?.auto)})`) },
+  }
+  const formsCtx = {
+    sessionProjections: formsDsh.projections,
+    // getSettingsService 走 ctx.get('settings') —— 伪造 get 面返回 forms 服务
+    get: (name) => (name === 'settings' ? formsSettings : undefined),
+    on: (name, listener) => {
+      calls.push(`on(${name})`)
+      void listener
+      return () => {}
+    },
+    settings: formsSettings,
+  }
+  const formsPorts = createNotificationPorts(formsCtx, { launcherDir: dir, log: (m) => formsLog.push(m) })
+  const formsInstance = mod.create(formsPorts)
+  const formsDispose = formsInstance.start()
+  try {
+    // ① 必须走 forms 分支（且旧机制文案不得出现）
+    assert.ok(
+      formsLog.some((l) => l.includes('[notification] settings 已挂载（forms 机制）') && l.includes('子段=[notification]')),
+      'forms 机制挂载日志缺失：' + formsLog.slice(-4).join(' / '),
+    )
+    assert.ok(!formsLog.some((l) => l.includes('[notification] settings 已注册 ns=')), '不应再走旧机制 register 路径')
+    // ② 读路径：经工厂取 scope → get() → 必须读到 **notification 子段**（不是整个 entry 配置）；
+    //    同时守卫 describe 的调用形状（官方契约 `describe(options?)` → 我方必须无参调用）
+    const scope = formsPorts.settingsScope('dsh-native-notification', null, {})
+    const read = scope.get()
+    assert.ok(calls.includes('describe(argc=0)'), 'describe 未按无参契约调用（官方为 describe(options?)）：' + calls.join(' / '))
+    assert.equal(read.notifyError, true, '未读到子段字段 notifyError（子段映射失效？）')
+    assert.equal(read.port, undefined, '读到了启动器字段 port —— 说明没走 notification 子段')
+    // ③ 写入必须包在 notification 子段下（否则污染启动器字段，导致配置错位）
+    await formsInstance.updateSettings({ notifyError: false })
+    const write = calls.find((c) => c.startsWith('update('))
+    assert.ok(write, 'update() 未被调用：' + calls.join(' / '))
+    assert.ok(write.includes('patchKeys=notification'), 'update 未把 patch 包进 notification 子段：' + write)
+    assert.ok(!write.includes('patchKeys=port'), 'update 污染了启动器字段（应只写子段）：' + write)
+  } finally {
+    formsDispose()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// 步骤 0d｜结构回归闸：apply 不得 await applyInner（0.1.7+ 死锁）
+// 依据（2026-09-24 沙箱实测，日志实锤）：官方 settings.describe() 只返回 **fiber 已 active** 的条目，
+// 而 fiber 要等 apply **返回**才激活 —— 若 apply 内 await 配置就绪，等于等自己，ready() 必然超时，
+// apply 拿到空配置（`resolved: port=undefined`）且启动被拖慢（实测 +2.4s / +3.2s）。
+await step('步骤 0d｜结构守卫：apply 不得 await applyInner；Config 导出必须在', () => {
+  const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.ok(!/await\s+applyInner\s*\(/.test(src), 'apply 内出现 await applyInner —— 与官方 fiber 激活形成死锁（见 tests 注释）')
+  assert.ok(/applyInner\(ctx,\s*config\)/.test(src), '找不到 applyInner 调用点（结构漂移）')
+  assert.ok(/\bConfig\b/.test(src), 'lib/index.js 缺 Config 导出（0.1.7+ 官方设置面的 schema 来源）')
+  assert.ok(/volatile/.test(src), 'Config 未标 volatile —— 官方会报 Plugin entry has no volatile fields')
+  // settings 是**可选**能力（缺了只是设置页不可用），不得塞进 inject ——
+  // 否则官方移除/改名该服务时整个插件拒载（0.1.7 把 settings 重构成 SettingsForms 即此类变更）
+  assert.ok(!/inject\s*=\s*\[[^\]]*settings/.test(src), 'settings 不应出现在 inject 清单里（应走 ctx.get + 降级）')
+})
+
+// 步骤 0e｜卸载流程契约守卫（依据 2026-09-24 对官方卸载能力的沙箱实测）
+// 实测事实：官方 removeBundle 只摘 profile 清单 + 更新 lockfile，**不碰 node_modules 链接**、
+// 完全不管生成物；我方负责生成物/系统面/断链/配置清理/审计。
+await step('步骤 0e｜卸载契约：官方挂载移除 + 断链不受分支排除 + 生成物清单齐备 + 失败可行动提示', () => {
+  const src = readFileSync(new URL('../lib/host/services/launcherRpc.js', import.meta.url), 'utf8')
+  // ① 挂载移除：优先官方 removeBundle，且保留手改回退
+  assert.ok(/removeBundle/.test(src), '卸载未调用官方 pluginManager.removeBundle')
+  assert.ok(/pluginManager/.test(src), '未尝试取官方 pluginManager 服务')
+  // ② 断链（STEP 5c）必须排在 officialRemoved 判定**之后**——否则走官方路径时不会断链
+  //    （官方实测：remove 后 node_modules/dsh-native-launcher 链接仍在）
+  const touchIdx = src.indexOf('officialRemoved && !touched')
+  const unlinkIdx = src.indexOf('STEP 5c unlink')
+  assert.ok(touchIdx > 0, '找不到手改分支判定点（结构漂移）')
+  assert.ok(unlinkIdx > 0, '断链步骤（STEP 5c）缺失')
+  assert.ok(unlinkIdx > touchIdx, '断链被手改分支排除 —— 官方路径下会留下悬空链接')
+  // ③ 生成物与系统面清理清单必须仍在（官方完全不管这些，缺一项就是残留）
+  for (const key of ['launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'AppUserModelId', 'dsh-webui', 'startupLnkPath']) {
+    assert.ok(src.includes(key), `卸载清理清单缺 ${key}`)
+  }
+  // ④ 两类真实失败面必须给可行动提示（2026-09-24 实测：atomic-write 写锁超时 / pnpm 缺失）
+  assert.ok(/写锁/.test(src), '缺「写锁占用」的可行动提示')
+  assert.ok(/pnpm/.test(src), '缺「pnpm 缺失」的可行动提示')
 })
 
 const instance = globalThis.__mod

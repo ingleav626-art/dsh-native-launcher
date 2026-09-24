@@ -80,6 +80,10 @@ const DEFAULT_MAX_BODY_CHARS = 400
 
 // 模块自述再导出：容器需要在 `create()` 之前读到 id / apiVersion 做护栏与开关判断
 export { manifest } from '../manifest.ts'
+// 设置 schema 对外导出：组装根要把它并进插件 Config 的 `notification` 子段
+// （0.1.7+ 官方只从插件 Config 导出取设置 schema，且 describe 只认 profile entry——
+//  模块自有 ns 必须落到主 entry 子段，见 src/host/io/settingsScope.ts 的 SETTINGS_SUBPATH）
+export { NOTIFICATION_SETTINGS_SCHEMA } from './settings.ts'
 
 /**
  * 创建通知模块。

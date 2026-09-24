@@ -15,11 +15,41 @@ export interface SettingsScopeLike<T> {
   update(patch: Partial<T>): Promise<void>
   watch(listener: (next: T, prev: T) => void): () => void
   replace?(section: unknown): Promise<void>
+  /**
+   * 新机制（0.1.7+ SettingsForms）专用：等官方 describe() 里出现本 ns 的条目。
+   * 实测约束——apply 期间自己的 fiber 尚未 active，describe() 会过滤掉自己，
+   * 故配置必须以就绪后的 describe 为准（旧机制无此方法）。
+   */
+  ready?(): Promise<void>
 }
 
-/** 官方 settings 服务的消费侧窄面（register 返回 scope）。 */
+/**
+ * 官方 settings 服务的一行 descriptor（0.1.7-rc.1 SettingsForms.describe() 实证形状）。
+ * `ns` = **profile entry id**；`value` = 实例合并后的 live 值；`base` = patch/inherited 层；`user` = 用户覆盖层。
+ */
+export interface SettingsDescriptorLike {
+  ns: string
+  value?: unknown
+  base?: unknown
+  user?: unknown
+  revision?: number
+  autoGenerate?: boolean
+  applies?: string
+}
+
+/**
+ * 官方 settings 服务的消费侧窄面——**双机制**（0.1.7-rc.1 实测）：
+ * - 旧（≤0.1.6）：`register(ns, schema, { base })` → scope
+ * - 新（≥0.1.7）：无 `register`，改用 `describe()` / `update()` / `replace()` / `configure()`；
+ *   配置 schema 来自插件 `Config` 导出（`export const Config`，schemastery，须 `.volatile()`）
+ */
 export interface SettingsProviderLike {
-  register<T>(namespace: string, schema: unknown, options: { base?: unknown }): SettingsScopeLike<T>
+  register?<T>(namespace: string, schema: unknown, options: { base?: unknown }): SettingsScopeLike<T>
+  describe?(options?: { redactSecrets?: boolean }): SettingsDescriptorLike[]
+  update?(ns: string, patch: object, expectedRevision?: number): Promise<void>
+  replace?(ns: string, section: object, expectedRevision?: number): Promise<void>
+  configure?(presentation: { auto?: boolean }, owner?: unknown): unknown
+  readonly writable?: boolean
 }
 
 /** 官方 webServer 的消费侧窄面（PWA 路由 / RPC 兜底桥用）。 */
@@ -72,4 +102,6 @@ export interface HostCtx {
   connection?: ConnectionFace
   webServer: WebServerFace
   get(name: string): unknown
+  /** 事件订阅（新机制 settings 变更观察用：`settings/document-updated`；官方无此事件时降级空实现）。 */
+  on?(name: string, listener: (...args: unknown[]) => unknown): unknown
 }

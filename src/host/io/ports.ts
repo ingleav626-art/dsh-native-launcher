@@ -11,17 +11,25 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { LogFn } from '../types.ts';
+import { MAIN_SETTINGS_ENTRY, createFormsScope, getSettingsService, isFormsMechanism, subPathOf } from './settingsScope.ts';
 
 /** 官方 ctx 的最小消费面（本文件专属；字段全可选，值域 any + 运行时校验）。 */
 interface OfficialCtxMin {
   get(name: string): any
+  on?(name: string, listener: (...args: any[]) => unknown): unknown
   sessionProjections?: {
     register(definition: any): unknown
     onChanged?(listener: (...args: any[]) => unknown): unknown
     snapshot?(session: any, keys: any): unknown
   }
+  /** 双机制（0.1.7-rc.1 实证）：旧＝register 返回 scope；新＝SettingsForms（describe/update/replace/configure）。 */
   settings?: {
-    register(namespace: string, schema: any, options: { base?: any }): any
+    register?(namespace: string, schema: any, options: { base?: any }): any
+    describe?(options?: { redactSecrets?: boolean }): any[]
+    update?(ns: string, patch: object, expectedRevision?: number): Promise<void>
+    replace?(ns: string, section: object, expectedRevision?: number): Promise<void>
+    configure?(presentation: { auto?: boolean }, owner?: unknown): unknown
+    readonly writable?: boolean
   }
 }
 
@@ -139,13 +147,45 @@ export function createSessionsPort(ctx: OfficialCtxMin, log: LogFn) {
   };
 }
 
-/** 设置作用域工厂：官方 settings.register 的三件套窄面（get / update / watch）。 */
+/**
+ * 设置作用域工厂：官方 settings 的消费侧窄面（get / update / watch），双机制自适应。
+ *
+ * - 旧（≤0.1.6）：`settings.register(ns, schema, { base })` 直接注册；
+ * - 新（0.1.7+）：官方只认 profile entry，模块自有的 ns（如 `dsh-native-notification`）
+ *   映射到主 entry 的子段（见 settingsScope.SETTINGS_SUBPATH），读写经 describe/update。
+ *
+ * 未登记的 ns 在新机制下无对应条目 → 抛错，由模块容器隔离（铁律 1，不拖垮本体）。
+ */
 export function createSettingsScopeFactory(ctx: OfficialCtxMin, log: LogFn) {
   return (namespace: string, schema: any, base: any) => {
-    if (!ctx?.settings || typeof ctx.settings.register !== 'function') {
+    const settings = getSettingsService(ctx);
+    if (!settings) {
       throw new Error('settings 服务不可用');
     }
-    const scope = ctx.settings.register(namespace, schema, { base });
+    if (isFormsMechanism(settings)) {
+      const subPath = subPathOf(namespace);
+      if (!subPath) {
+        throw new Error(`settings ns "${namespace}" 在 0.1.7+ 无对应 profile entry`);
+      }
+      const scope = createFormsScope<any>({
+        settings,
+        ctx,
+        ns: MAIN_SETTINGS_ENTRY,
+        base,
+        subPath,
+        log,
+      });
+      log(`[notification] settings 已挂载（forms 机制）ns=${namespace} → entry=${MAIN_SETTINGS_ENTRY} 子段=[${subPath.join('.')}]`);
+      return {
+        get: () => scope.get(),
+        update: (patch: any) => scope.update(patch),
+        watch: (listener: (...args: any[]) => unknown) => scope.watch(listener as (next: any, prev: any) => void),
+      };
+    }
+    if (typeof settings.register !== 'function') {
+      throw new Error('settings 服务不可用');
+    }
+    const scope = settings.register(namespace, schema, { base });
     log(`[notification] settings 已注册 ns=${namespace}`);
     return {
       get: () => scope.get(),

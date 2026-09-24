@@ -418,13 +418,42 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
               addFail(`清理 dsh-webui 协议失败（继续）: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
             }
             try {
-              // 5) profile 自移除：扫描 $DSH_HOME/profiles/*/package.json，摘除 dependencies 条目
-              //    与 dsh.profile.bundles 数组项（先备份原文件）。link 安装保留目标目录。
-              logU('INFO', 'STEP 5/5 profile-edit: scanning profiles for dsh-native-launcher entries');
+              // 5) profile 挂载移除——**双路径**：
+              //    a) 官方 pluginManager.removeBundle（0.1.7+ 新增服务）：官方走 pnpm 路径并维护
+              //       manifest / lockfile / compatibility.json 一致性，优于我方手改；
+              //    b) 手工改写 package.json（≤0.1.6 无此服务，或官方调用失败时回退）。
+              //    注意：生成物清理（STEP 1-4b）始终由本体负责——官方只卸载挂载，不管插件自建产物。
+              logU('INFO', 'STEP 5/5 profile-remove: begin (official pluginManager → fallback manual edit)');
+              let officialRemoved = false;
+              try {
+                const pm = deps.getService('pluginManager') as { removeBundle?: (name: string) => Promise<unknown> } | null | undefined;
+                if (pm && typeof pm.removeBundle === 'function') {
+                  const result = await pm.removeBundle('dsh-native-launcher');
+                  officialRemoved = true;
+                  logU('INFO', `STEP 5/5 profile-remove: official removeBundle ok :: ${JSON.stringify(result)?.slice(0, 300)}`);
+                  addStep('已通过官方插件管理移除 profile 挂载（依赖清单与锁定一致性由官方处理）');
+                } else {
+                  logU('INFO', 'STEP 5/5 profile-remove: pluginManager 不可用（≤0.1.6）→ 手工改写 package.json');
+                }
+              } catch (error) {
+                const officialError = error instanceof Error ? error.message : String(error);
+                logU('ERROR', `STEP 5/5 profile-remove: official removeBundle failed → 回退手工改写：${officialError}`);
+                // 可行动提示（2026-09-24 沙箱实测的两类真实失败面）：
+                // ① 官方 0.1.7 引入 atomic-write 写锁（profiles/<name>/package.json.lock）——
+                //    另一实例正在写、或上次异常退出留下残锁时会超时；
+                // ② 官方走 dsh plugin 的 pnpm 通道，pnpm 缺失即失败。
+                if (/writer lock|timed out waiting for the writer lock/i.test(officialError)) {
+                  manualAdd('官方卸载被 profile 写锁占用（另一 dsh 实例正在写，或上次异常退出残留锁）——请重启 dsh 后重试；残留锁文件：profiles/<name>/package.json.lock');
+                } else if (/pnpm/i.test(officialError) && /(not found|ENOENT|missing|npm ERR)/i.test(officialError)) {
+                  manualAdd('官方卸载需要 pnpm（dsh plugin 的包管理通道）——请先安装 pnpm（npm i -g pnpm）后重试');
+                }
+              }
+              // 5b) 手工改写（官方路径成功则跳过）：扫描 $DSH_HOME/profiles/*/package.json，
+              //     摘除 dependencies 条目与 dsh.profile.bundles 数组项（先备份原文件）。
               const home = process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '', '.dsh');
               const profilesRoot = join(home, 'profiles');
               let touched = false;
-              if (existsSync(profilesRoot)) {
+              if (!officialRemoved && existsSync(profilesRoot)) {
                 for (const entry of readdirSync(profilesRoot, { withFileTypes: true })) {
                   if (!entry.isDirectory()) continue;
                   const pkgPath = join(profilesRoot, entry.name, 'package.json');
@@ -449,16 +478,36 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
                     addStep('检测到开发链接安装（link:），插件源码目录已保留未删除');
                     logU('INFO', 'link-install detected: source directory preserved (never deleted)');
                   }
-                  // 断开 node_modules 链接（pnpm/link symlink 只删链接本身）
-                  const linkPath = join(profilesRoot, entry.name, 'node_modules', 'dsh-native-launcher');
-                  if (existsSync(linkPath)) {
-                    try { unlinkSync(linkPath); steps.push('已断开 node_modules 插件链接'); } catch (e) {
-                      manual.push(`未能移除 ${linkPath}（可手动删除或在该 profile 目录执行包管理器安装命令清理）: ${e}`);
+                }
+              }
+              if (!officialRemoved && !touched) manual.push('未在 $DSH_HOME/profiles 找到本插件的安装条目——若装在其他 profile，请手动从其 package.json 移除 "dsh-native-launcher"');
+
+              // 5c) 断开 node_modules 里的插件链接——**两条路径都必须执行**。
+              // 实测（2026-09-24，dsh 0.1.7-rc.1）：官方 removeBundle 只摘 profile 清单与 lockfile，
+              // **不碰 node_modules 里的 link 符号链接**（remove 后链接仍在）。故这一步不能挂在
+              // "手改分支"里，否则走官方路径时会留下悬空链接（源码目录还在，但链接指向已失效清单）。
+              try {
+                const profilesRoot4Link = join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '', '.dsh'), 'profiles');
+                let unlinked = 0;
+                if (existsSync(profilesRoot4Link)) {
+                  for (const entry of readdirSync(profilesRoot4Link, { withFileTypes: true })) {
+                    if (!entry.isDirectory()) continue;
+                    const linkPath = join(profilesRoot4Link, entry.name, 'node_modules', 'dsh-native-launcher');
+                    if (!existsSync(linkPath)) continue;
+                    try {
+                      unlinkSync(linkPath);
+                      unlinked += 1;
+                      logU('INFO', `STEP 5c unlink: ${linkPath}`);
+                    } catch (e) {
+                      manual.push(`未能移除 ${linkPath}（可手动删除或在 profile 目录重跑包管理器）: ${e}`);
+                      logU('WARN', `STEP 5c unlink FAILED: ${linkPath} :: ${e}`);
                     }
                   }
                 }
+                if (unlinked > 0) addStep(`已断开 ${unlinked} 个 profile 的 node_modules 插件链接`);
+              } catch (error) {
+                logU('WARN', `STEP 5c unlink skipped: ${error instanceof Error ? error.message : String(error)}`);
               }
-              if (!touched) manual.push('未在 $DSH_HOME/profiles 找到本插件的安装条目——若装在其他 profile，请手动从其 package.json 移除 "dsh-native-launcher"');
             } catch (error) {
               manual.push('自动移除 profile 条目失败，请手动编辑 profiles/<name>/package.json 删除 "dsh-native-launcher"（dependencies 与 dsh.profile.bundles 两处）: ' + error);
             }

@@ -12,9 +12,11 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const settingsSrc = readFileSync(new URL('./io/settings.ts', import.meta.url), 'utf8')
+// 字段清单从 LAUNCHER_FIELDS 常量块提取（2026-09-24 起 schema 由字段表构造：
+// `LAUNCHER_SETTINGS_SCHEMA = z.object(LAUNCHER_FIELDS)`——字段行仍两空格缩进，同一文本块内）
 const schemaBlock = settingsSrc.slice(
-  settingsSrc.indexOf('LAUNCHER_SETTINGS_SCHEMA = z.object'),
-  settingsSrc.indexOf('});', settingsSrc.indexOf('LAUNCHER_SETTINGS_SCHEMA = z.object')),
+  settingsSrc.indexOf('LAUNCHER_FIELDS = {'),
+  settingsSrc.indexOf('\n};', settingsSrc.indexOf('LAUNCHER_FIELDS = {')),
 )
 // 顶层字段 = schema 块内两空格缩进的 `字段名: z.` 行（嵌套对象的更深缩进不计）
 const fields = [...schemaBlock.matchAll(/^  ([A-Za-z]+): z\./gm)].map((m) => m[1])

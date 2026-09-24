@@ -1,18 +1,30 @@
 /**
- * 启动器设置：官方设置卡片 schema（rc.7+ settings.register）+ 注册与配置解析（L2）。
+ * 启动器设置：官方设置卡片 schema + 注册与配置解析（L2）。
  *
  * 渲染端按 schemastery 结构自动生成表单；desc 即设置页文案。
  * 默认值必须与 cordis.patch.yml 注释保持一致——patch base 覆盖默认值，用户文档再覆盖 patch。
  *
+ * 双机制（2026-09-24 沙箱实证，详见 io/settingsScope.ts）：
+ * - 旧（≤0.1.6）：`settings.register(ns, schema, { base })` → scope；
+ * - 新（0.1.7+）：官方从插件 `Config` 导出取 schema，配置经 `describe()` 读、`update()` 写；
+ *   本机实测 **volatile 字段不进 apply 的 config 入参**，且 **apply 期间自己的 entry 不在 describe 里**，
+ *   故新机制下必须 `await scope.ready()` 之后再取配置（就绪前一律以 patch base 兜底）。
+ *
  * 有意差异（记账，P2-B1）：原 applyInner 内联的注册段抽成 registerLauncherSettings——
  * settingsScope 属主归本模块（REFACTOR_PLAN B1 表），打点文本逐字保留。
+ * 2026-09-24：LAUNCHER_FIELDS 拆出（组装根要与通知模块子段合成完整 Config 导出）。
  */
 import z from '@deepseek-ai/schemastery';
-import type { LauncherConfig, LogFn, SettingsProviderLike, SettingsScopeLike } from '../types.ts';
+import type { HostCtx, LauncherConfig, LogFn, SettingsScopeLike } from '../types.ts';
+import { createFormsScope, createLegacyScope, getSettingsService, isFormsMechanism } from './settingsScope.ts';
 
 export const SETTINGS_NAMESPACE = 'native-launcher';
 
-export const LAUNCHER_SETTINGS_SCHEMA = z.object({
+/**
+ * 启动器配置字段表（拆出供组装根合成完整 Config：`z.object({ ...LAUNCHER_FIELDS, notification })`）。
+ * 逐字段保持与原 schema 逐字一致（含默认值与 desc）。
+ */
+export const LAUNCHER_FIELDS = {
   launchCommand: z.string().default('dsh --profile web --no-open').description('桌面快捷方式执行的启动命令（需 PATH 里有 dsh）'),
   port: z.number().default(3080).description('WebUI 端口（需与 webserver 配置一致）'),
   shortcutName: z.string().default('DSH WebUI').description('桌面快捷方式名称'),
@@ -33,7 +45,17 @@ export const LAUNCHER_SETTINGS_SCHEMA = z.object({
   modules: z.object({
     notifications: z.boolean().default(true).description('任务通知模块（WebUI 投影通知通道）'),
   }).default({ notifications: true }).description('可插拔功能模块'),
-});
+};
+
+/**
+ * 启动器设置 schema（**旧机制专用**：≤0.1.6 的 `settings.register` 用它做三层合并）。
+ *
+ * 这里**刻意不标 `.volatile()`**——实测 volatile 会改变 schema 的求值语义
+ * （`schema({})` 返回 volatile 包装而非普通对象），而旧版官方（不认识 meta.volatile）
+ * 会照常求值合并，混用会污染配置。新机制要求的 volatile 只加在组装根的 `Config` 导出上
+ * （见 src/index.ts），两者互不影响。
+ */
+export const LAUNCHER_SETTINGS_SCHEMA = z.object(LAUNCHER_FIELDS);
 
 export interface LauncherSettingsRegistration {
   /** 官方 scope（用户改设置 → 官方持久化；config.get/set RPC 经它读写）。无 settings 服务时为 null。 */
@@ -43,23 +65,31 @@ export interface LauncherSettingsRegistration {
 }
 
 /**
- * 注册官方设置卡片并解析本次生效配置（rc.7+）。
+ * 注册官方设置卡片并解析本次生效配置（双机制）。
  *
- * resolved = schema 默认值 → patch base（cordis.patch.yml）→ 用户设置文档。
+ * resolved = schema 默认值 → patch base（cordis.patch.yml）→ 用户设置。
  * 合并结果作为本次生效配置；用户改设置后需重启 dsh 完全生效（脚本/托盘/快捷方式都在 apply 时生成）。
+ *
+ * 新机制下 `await scope.ready()` 是必需的：apply 期间自己的 fiber 尚未 active，
+ * 官方 describe() 尚不返回本条目（沙箱实测），就绪前读到的只能是 patch base。
  *
  * 容错（不拖垮本体）：重复注册（fiber 重载竞态）等异常 → 保留 patch 配置继续跑；
  * settings 服务未注入（旧版官方/异常环境）→ 同样只用 patch 配置。
  */
-export function registerLauncherSettings(
-  ctx: { settings?: SettingsProviderLike },
+export async function registerLauncherSettings(
+  ctx: HostCtx,
   config: LauncherConfig,
   logMsg: LogFn,
-): LauncherSettingsRegistration {
+): Promise<LauncherSettingsRegistration> {
+  const settings = getSettingsService(ctx);
   try {
-    if (ctx.settings) {
-      const scope = ctx.settings.register<LauncherConfig>(SETTINGS_NAMESPACE, LAUNCHER_SETTINGS_SCHEMA, { base: config });
+    if (settings) {
+      const scope = isFormsMechanism(settings)
+        ? createFormsScope<LauncherConfig>({ settings, ctx, ns: SETTINGS_NAMESPACE, base: config, log: logMsg })
+        : createLegacyScope<LauncherConfig>(settings, SETTINGS_NAMESPACE, LAUNCHER_SETTINGS_SCHEMA, config);
+      if (typeof scope.ready === 'function') await scope.ready();
       const cfg: LauncherConfig = { ...config, ...scope.get() };
+      // 打点文本逐字保留（双机制同一行，便于日志对账）
       logMsg(`[settings] registered ns=${SETTINGS_NAMESPACE} (resolved: port=${cfg.port}, launchCommand=${JSON.stringify(cfg.launchCommand)}, tray=${cfg.tray !== false}, traySurvivesDsh=${cfg.traySurvivesDsh !== false}, autoOpen=${cfg.autoOpen !== false}, openMode=${cfg.openMode ?? 'app'}, autoStartBoot=${cfg.autoStartBoot === true}, force=${cfg.force === true}, modules=${JSON.stringify(cfg.modules)})`);
       scope.watch(() => logMsg('settings updated — restart dsh (double-click shortcut) to fully apply'));
       return { scope, cfg };

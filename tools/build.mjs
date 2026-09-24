@@ -82,6 +82,8 @@ const INDEX_IMPORT_MAP = {
   './host/io/state.ts': './host/state.js',
   './host/io/priority.ts': './host/priority.js',
   './host/io/settings.ts': './host/settings.js',
+  // 组装根从通知模块产物取设置 schema（合成 Config 的 notification 子段；0.1.7+ 需要）
+  './modules/notification/host/settings.ts': './modules/notification/index.js',
   './host/io/scripts.ts': './host/scripts.js',
   './host/io/icon.ts': './host/icon.js',
   './host/io/shortcut.ts': './host/shortcut.js',
@@ -128,6 +130,8 @@ const ENTRIES = [
   ['src/host/io/diagnostics.ts', 'lib/host/diagnostics.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/priority.ts', 'lib/host/priority.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/settings.ts', 'lib/host/settings.js', 'esm', 'node', { sourcemap: false }],
+  // settings 作用域的双机制适配（0.1.7+ SettingsForms）——settings.ts / ports.ts 都依赖它
+  ['src/host/io/settingsScope.ts', 'lib/host/settingsScope.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/scripts.ts', 'lib/host/scripts.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/icon.ts', 'lib/host/icon.js', 'esm', 'node', { sourcemap: false }],
   ['src/host/io/shortcut.ts', 'lib/host/shortcut.js', 'esm', 'node', { sourcemap: false }],

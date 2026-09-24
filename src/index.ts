@@ -17,7 +17,9 @@ import { logMsg, logWarn, logFail, beginApplyLog, nextSaveSeq } from './host/io/
 import { logsDirOf, resolveDesktopPath } from './host/core/paths.ts';
 import { dshVersionGte } from './host/core/version.ts';
 import { detectDshVersion, logEnvDiagnostics } from './host/io/diagnostics.ts';
-import { registerLauncherSettings } from './host/io/settings.ts';
+import z from '@deepseek-ai/schemastery';
+import { LAUNCHER_FIELDS, registerLauncherSettings } from './host/io/settings.ts';
+import { NOTIFICATION_SETTINGS_SCHEMA } from './modules/notification/host/settings.ts';
 import { writeOpenScript, writeLauncherFiles } from './host/io/scripts.ts';
 import { ensureIcon, extractPngDataUrl } from './host/io/icon.ts';
 import { createDesktopShortcut, ensureStartupShortcut, startupLnkPath } from './host/io/shortcut.ts';
@@ -40,7 +42,35 @@ import type { HostCtx, LauncherConfig } from './host/types.ts';
 const priorityRaise = raiseOwnPriority();
 
 export const name = 'native-launcher';
-export const inject = ['webServer', 'connection', 'sessionProjections', 'settings'];
+/**
+ * inject = 插件**必需**的官方服务（cordis 保证注入；缺任一即环境异常）。
+ *
+ * `settings` **刻意不在其中**（2026-09-24 用户拍板）：它对本插件是**可选**能力——缺失时只是设置页
+ * 不可用、配置回落 cordis.patch.yml，本体照跑。按项目规范「可选服务一律 ctx.get + 降级，别塞
+ * inject」，移出可避免官方将来移除/改名 settings 服务时**整个插件拒载**（0.1.7 把 settings 重构成
+ * SettingsForms、直接删掉 register 正是这类风险的实证）。取用与降级见 applyInner 里的窄面收口。
+ */
+export const inject = ['webServer', 'connection', 'sessionProjections'];
+
+/**
+ * 插件 Config —— 0.1.7+ 官方设置面**只认这里导出的 schema**（`runtime.Config = plugin.Config`，
+ * 见 cordis 源码；官方 `isNativeConfigSchema` 认的正是 schemastery 图）。
+ *
+ * 两段合一：启动器字段（LAUNCHER_FIELDS）+ 通知模块子段（notification）。
+ * 后者存在的理由：官方 `describe()` **只遍历 profile entries**，而通知模块的 ns
+ * （`dsh-native-notification`）不是 entry —— 新机制下它必须落在主 entry 的子段里
+ * （读写映射见 io/settingsScope.ts 的 SETTINGS_SUBPATH）。旧机制（≤0.1.6）不受影响，
+ * 通知模块仍用自有 ns 注册。
+ *
+ * 必须 `.volatile()`：官方设置面只收 volatile 字段，未标记时 update 直接报
+ * `Plugin entry "x" has no volatile fields`（2026-09-24 沙箱实测原文）。
+ * volatile 语义 = 改了不重载插件实例，由插件自己处理变更 —— 与本项目
+ * "设置改动需重启 dsh 生效（脚本/托盘在 apply 时生成）"的口径一致。
+ */
+export const Config = z.object({
+  ...LAUNCHER_FIELDS,
+  notification: NOTIFICATION_SETTINGS_SCHEMA,
+}).volatile();
 
 // 一键卸载后置标记（P2-B6-b 归位：uninstall case 经 deps.armExitCleanup 触发）——
 // dsh 进程退出瞬间清掉残留的功能性生成文件（日志永久保留作为证据）
@@ -60,15 +90,26 @@ function armExitCleanup(dir: string) {
   });
 }
 
-export function apply(ctx: HostCtx, config: LauncherConfig = {}) {
-  try {
-    applyInner(ctx, config);
-  } catch (error) {
+/**
+ * 插件入口。
+ *
+ * **刻意不 await applyInner**（2026-09-24 沙箱实测教训，日志实锤）：
+ * 官方 `describe()` 只返回 **fiber 已 active** 的条目，而 fiber 要等 `apply` **返回**才激活——
+ * 若这里 await，applyInner 内部等配置就等于"等自己"，必然死锁：ready() 只能超时放行，
+ * apply 拿到空配置（日志 `resolved: port=undefined, launchCommand=undefined`）且启动被拖慢
+ * （实测 +2.4s / +3.2s，正好是 ready 超时值）。
+ *
+ * 故：**同步返回**让 fiber 立即激活，applyInner 作为续体继续跑（其内部 ready() 轮询随即命中，
+ * 预期 ~100ms）。错误仍被捕获并落盘（不拖垮本体，铁律 1）。
+ */
+export function apply(ctx: HostCtx, config: LauncherConfig = {}): void {
+  const running = applyInner(ctx, config);
+  running.catch((error) => {
     logFail(`[launcher] apply failed (harness continues): ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
-  }
+  });
 }
 
-function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
+async function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   // 日志初始化最前置（P2-B2 修正：此前 dsh version / [settings] registered 等 apply 前段
   // 日志在 LOG_PATH 就绪前只 echo 不落盘——dsh 的 stdout 被丢弃，用户永远看不到 = 黑箱）。
   const home = process.env.USERPROFILE;
@@ -79,6 +120,11 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   const launcherDir = join(home, '.dsh-webui-launcher');
   const { logsDir, applySeq } = beginApplyLog(launcherDir);
   logMsg(`──────────────── apply #${applySeq} start (dsh pid=${process.pid}) ────────────────`);
+  // settings 不在 inject 里（见文件头 inject 注释）——**属性访问会抛**（cordis 4 守卫），因此
+  // 所有 settings 取用一律走 `ctx.get('settings')`（io/settings.ts 与 io/ports.ts 内部收口），
+  // 缺失时降级为 patch 配置。**真 ctx 保持原样传给下游**——官方 API 必须拿到真 cordis ctx：
+  // 传包装对象会让官方内部的 inject 检查失败（实测 `cannot get property "webServer" without
+  // inject` → RPC 被迫走降级桥），原型链/Object.create 方案也会触发 cordis 的跨 fiber 守卫。
   // 启动耗时埋点（v0.4.1 性能优化的数据来源）：各阶段日志带相对 apply 开始的毫秒数
   const applyT0 = Date.now();
   const elapsed = (): string => `+${Date.now() - applyT0}ms`;
@@ -96,8 +142,19 @@ function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   // 注册官方设置卡片（rc.7+）：resolved = schema 默认值 → patch base（cordis.patch.yml）→ 用户设置文档。
   // 合并结果作为本次生效配置；用户改设置后需重启 dsh 完全生效（脚本/托盘/快捷方式都在 apply 时生成）。
   // settingsScope 属主 = src/host/io/settings.ts（P2-B1 起收拢；RPC 的 config.get/set 经它读写）
-  const { scope: settingsScope, cfg: resolvedCfg } = registerLauncherSettings(ctx, config, logMsg);
+  const { scope: settingsScope, cfg: resolvedCfg } = await registerLauncherSettings(ctx, config, logMsg);
   logMsg(`timing: settings registered ${elapsed()}`);
+  // 0.1.7+：官方会为每个带 schema 的插件自动生成设置页；本项目有自绘卡片（含"测试通知"/"一键卸载"
+  // 这些官方表单表达不了的操作），故关掉自动页，避免同一插件出现两份设置入口。
+  // 旧机制（≤0.1.6）无 configure 方法，自动跳过。
+  if (typeof ctx.settings?.configure === 'function') {
+    try {
+      ctx.settings.configure({ auto: false });
+      logMsg('[settings] configure({auto:false}) — 使用插件自带设置卡片');
+    } catch (error) {
+      logMsg(`[settings] configure 失败（继续）：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   let cfg = resolvedCfg;
   const launchCommand = cfg.launchCommand ?? 'dsh --profile web --no-open';
   const shortcutName = cfg.shortcutName ?? 'DSH WebUI';
