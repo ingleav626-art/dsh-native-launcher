@@ -82,6 +82,7 @@ const INDEX_IMPORT_MAP = {
   './host/io/state.ts': './host/state.js',
   './host/io/priority.ts': './host/priority.js',
   './host/io/settings.ts': './host/settings.js',
+  './host/io/settingsScope.ts': './host/settingsScope.js',
   // 组装根从通知模块产物取设置 schema（合成 Config 的 notification 子段；0.1.7+ 需要）
   './modules/notification/host/settings.ts': './modules/notification/index.js',
   './host/io/scripts.ts': './host/scripts.js',

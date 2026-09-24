@@ -19,6 +19,7 @@ import { dshVersionGte } from './host/core/version.ts';
 import { detectDshVersion, logEnvDiagnostics } from './host/io/diagnostics.ts';
 import z from '@deepseek-ai/schemastery';
 import { LAUNCHER_FIELDS, registerLauncherSettings } from './host/io/settings.ts';
+import { getSettingsService } from './host/io/settingsScope.ts';
 import { NOTIFICATION_SETTINGS_SCHEMA } from './modules/notification/host/settings.ts';
 import { writeOpenScript, writeLauncherFiles } from './host/io/scripts.ts';
 import { ensureIcon, extractPngDataUrl } from './host/io/icon.ts';
@@ -147,9 +148,13 @@ async function applyInner(ctx: HostCtx, config: LauncherConfig = {}) {
   // 0.1.7+：官方会为每个带 schema 的插件自动生成设置页；本项目有自绘卡片（含"测试通知"/"一键卸载"
   // 这些官方表单表达不了的操作），故关掉自动页，避免同一插件出现两份设置入口。
   // 旧机制（≤0.1.6）无 configure 方法，自动跳过。
-  if (typeof ctx.settings?.configure === 'function') {
+  // 取用必须经 getSettingsService（ctx.get 收口）——settings 不在 inject，**属性访问本身就会抛**
+  // inject 守卫（可选链救不了读取环节；2026-09-24 真机 0.1.5-rc.2 实测：这里抛错 =
+  // applyInner 整体中断 = 托盘/快捷方式/RPC 全没起，即用户看到的"托盘炸了"）。
+  const settingsSvc = getSettingsService(ctx);
+  if (typeof settingsSvc?.configure === 'function') {
     try {
-      ctx.settings.configure({ auto: false });
+      settingsSvc.configure({ auto: false });
       logMsg('[settings] configure({auto:false}) — 使用插件自带设置卡片');
     } catch (error) {
       logMsg(`[settings] configure 失败（继续）：${error instanceof Error ? error.message : String(error)}`);

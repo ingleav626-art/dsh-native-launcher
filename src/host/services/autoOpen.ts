@@ -3,11 +3,10 @@
  * 等 webServer 就绪（带 token URL 探测）后经 open-webui.ps1 打开页面（PWA 窗口优先）。
  * 从 index.js「5.」段原样搬入（P2-B5）。
  */
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import http from 'node:http'
 import type { LogFn } from '../types.ts'
 import { openBrowser } from '../io/pwa.ts'
+import { readWebuiUrl } from '../io/state.ts'
 
 export interface AutoOpenDeps {
   /** 官方服务取用窄面（webServer → port / loader → await）。 */
@@ -31,11 +30,13 @@ export function setupAutoOpen(deps: AutoOpenDeps): void {
   // 返回 2xx = 索引与静态资源真实就绪。旧版 dsh 无 token URL 时退回裸 / 探测。
   const waitForPageReady = (port: number, timeoutMs: number, cb: (ready: boolean) => void): void => {
     const started = Date.now()
+    // 探测目标必须经 state 口（readWebuiUrl：webui-url.json 优先 → 旧 txt 回退）。
+    // 0.4.1 JSON 化时本处漏改、仍在读 webui-url.txt（已停产）→ 永远 miss → 裸探测在
+    // rc.2 一次性 token 鉴权下 401 循环 15s 超时（真机 2026-09-24 实测 probe took
+    // 15355ms；残留 txt 时代基准 38ms）。读到带 token URL = 探测直接验证索引与静态资源就绪。
     let probeTarget: string | null = null
-    try {
-      const saved = readFileSync(join(launcherDir, 'webui-url.txt'), 'utf8').trim()
-      if (saved.startsWith('http')) probeTarget = saved
-    } catch { /* 尚未落盘则走裸探测 */ }
+    const saved = readWebuiUrl(launcherDir)
+    if (saved?.url && saved.url.startsWith('http')) probeTarget = saved.url
     const probe = (): void => {
       // 裸探测回退 = 带 path 的同源 URL 字符串（与对象形式 http.get({host,port,path}) 等价）
       const req = http.get(probeTarget ?? `http://127.0.0.1:${port}/`, { timeout: 2000 }, (res) => {

@@ -154,51 +154,59 @@ class ForgedDsh {
       list: () => [...this.#sessions],
       get: id => this.#sessions.find(session => session.id === id),
     }
+    // settings 真身放在闭包里（**不挂 ctx 属性**）：settings 不在插件 inject 清单，
+    // 属性访问必须抛（守卫见下方 defineProperty）——2026-09-24 真机事故：
+    // 产物里 `ctx.settings?.configure` 属性访问在 cordis 下直接抛（可选链救不了读取环节），
+    // 而伪造 ctx 是普通对象、属性访问返回 undefined 静默跳过 → E2E 全绿、真机"托盘炸了"。
+    // 守卫模拟就是让这类写法在本机 E2E 即刻炸出原样错误。
+    const settingsSvc = {
+      register: (namespace, schema, { base } = {}) => {
+        if (this.#settings.has(namespace)) throw new Error(`settings namespace 重复注册: ${namespace}`)
+        // 官方语义：注册即以 schema 校验/补全 base，得到当前值
+        let value = schema({ ...(base ?? {}) })
+        const listeners = new Set()
+        const scope = {
+          get: () => value,
+          update: async patch => {
+            const prev = value
+            value = schema({ ...value, ...patch })
+            for (const fn of [...listeners]) fn(value, prev)
+          },
+          replace: async section => {
+            const prev = value
+            value = schema(section)
+            for (const fn of [...listeners]) fn(value, prev)
+          },
+          watch: fn => {
+            listeners.add(fn)
+            return () => listeners.delete(fn)
+          },
+        }
+        this.#settings.set(namespace, scope)
+        return scope
+      },
+    }
     const ctx = {
       sessionProjections: this.projections,
-      settings: {
-        register: (namespace, schema, { base } = {}) => {
-          if (this.#settings.has(namespace)) throw new Error(`settings namespace 重复注册: ${namespace}`)
-          // 官方语义：注册即以 schema 校验/补全 base，得到当前值
-          let value = schema({ ...(base ?? {}) })
-          const listeners = new Set()
-          const scope = {
-            get: () => value,
-            update: async patch => {
-              const prev = value
-              value = schema({ ...value, ...patch })
-              for (const fn of [...listeners]) fn(value, prev)
-            },
-            replace: async section => {
-              const prev = value
-              value = schema(section)
-              for (const fn of [...listeners]) fn(value, prev)
-            },
-            watch: fn => {
-              listeners.add(fn)
-              return () => listeners.delete(fn)
-            },
-          }
-          this.#settings.set(namespace, scope)
-          return scope
-        },
-      },
       // `ctx.get(name)` 是 cordis 的**免守卫**取服务面（客户端传感器与宿主端口都走它）
       // getSettingsService 走 ctx.get('settings')（settings 不在插件 inject 清单）——
       // 伪造 get 面必须能返回本服务的真身，否则旧机制路径拿不到 settings
       get: name => {
         if (name === 'sessions') return this.sessions
-        if (name === 'settings') return ctx.settings
+        if (name === 'settings') return settingsSvc
         return undefined
       },
     }
     // cordis 4 的 inject 守卫：**未在插件 inject 清单里声明的服务，属性访问直接抛**
-    // （2026-09-11 沙箱实测的 S1：宿主写 `ctx.sessions` → 抛 → 通知模块整体不加载）。
-    // 伪造出来，"该用 ctx.get 还是 ctx.sessions"这类接线错误在本机 E2E 就会炸，而不是等到真机。
-    Object.defineProperty(ctx, 'sessions', {
-      configurable: true,
-      get() { throw new Error('cannot get property "sessions" without inject') },
-    })
+    // （2026-09-11 沙箱实测的 S1：宿主写 `ctx.sessions` → 抛 → 通知模块整体不加载；
+    //   2026-09-24 真机事故的 S2：`ctx.settings?.configure` → 抛 → applyInner 中断 → 托盘全没起）。
+    // 伪造出来，"该用 ctx.get 还是 ctx.xxx"这类接线错误在本机 E2E 就会炸，而不是等到真机。
+    for (const guarded of ['sessions', 'settings']) {
+      Object.defineProperty(ctx, guarded, {
+        configurable: true,
+        get() { throw new Error(`cannot get property "${guarded}" without inject`) },
+      })
+    }
     this.ctx = ctx
   }
 }
@@ -535,6 +543,17 @@ await step('步骤 0d｜结构守卫：apply 不得 await applyInner；Config �
   // settings 是**可选**能力（缺了只是设置页不可用），不得塞进 inject ——
   // 否则官方移除/改名该服务时整个插件拒载（0.1.7 把 settings 重构成 SettingsForms 即此类变更）
   assert.ok(!/inject\s*=\s*\[[^\]]*settings/.test(src), 'settings 不应出现在 inject 清单里（应走 ctx.get + 降级）')
+  // 产物中禁止 `ctx.settings` 属性访问：settings 不在 inject，cordis 守卫在属性**读取**时就抛
+  // （可选链救不了读取环节）。2026-09-24 真机事故：`ctx.settings?.configure` → applyInner 中断
+  // → 托盘/快捷方式/RPC 全没起。合法取用一律 getSettingsService(ctx)（走 ctx.get）。
+  // 本 E2E 主流程不真调 apply（会动真系统面），applyInner 内部的接线错误只能靠这条文本闸覆盖。
+  assert.ok(!/ctx\.settings/.test(src), '产物出现 ctx.settings 属性访问 —— cordis 属性读取即抛，须走 getSettingsService(ctx)')
+  // auto-open 探测目标必须经 state 口（readWebuiUrl：webui-url.json 优先 → 旧 txt 回退）——
+  // 0.4.1 JSON 化漏改读取端，autoOpen 仍直读已停产的 webui-url.txt → 裸探测在 rc.2 一次性
+  // token 鉴权下 401 循环 15s 超时（真机 2026-09-24 实测 probe took 15355ms，基准 38ms）。
+  // 注意只能正向断言（esbuild 会把 state.ts 的 txt 回退逻辑 bundle 进产物，txt 文本合法存在）
+  const autoOpenSrc = readFileSync(new URL('../lib/host/services/autoOpen.js', import.meta.url), 'utf8')
+  assert.ok(/readWebuiUrl/.test(autoOpenSrc), 'autoOpen 产物未走 readWebuiUrl —— 探测目标读取端漏改（JSON 化回归）')
 })
 
 // 步骤 0e｜卸载流程契约守卫（依据 2026-09-24 对官方卸载能力的沙箱实测）

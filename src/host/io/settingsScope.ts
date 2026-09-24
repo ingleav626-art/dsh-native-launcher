@@ -193,9 +193,12 @@ export function createLegacyScope<T extends object>(
   schema: unknown,
   base: unknown,
 ): SettingsScopeLike<T> {
-  const register = settings.register
-  if (typeof register !== 'function') throw new Error('settings.register 不可用')
-  const scope = register<T>(ns, schema, { base })
+  if (typeof settings.register !== 'function') throw new Error('settings.register 不可用')
+  // **必须方法调用形式**（this = settings）：0.1.5-rc.2 的 register 是读 `this.registrations`
+  // 的类方法（官方源码 lib/index.js:283），摘下来裸调 this 丢失 → `Cannot read properties of
+  // undefined (reading 'registrations')`——2026-09-24 真机实测（被上层 catch 容住，表现为
+  // 设置静默失效，日志只有一条 register skipped）。
+  const scope = settings.register<T>(ns, schema, { base })
   const out: SettingsScopeLike<T> = {
     get: () => scope.get(),
     update: (patch) => scope.update(patch),

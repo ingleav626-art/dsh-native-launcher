@@ -117,6 +117,37 @@ describe('registerLauncherSettings（旧机制 ≤0.1.6）', () => {
     expect(cfg).toBe(config)
     expect(logs).toContain('settings register skipped: already registered')
   })
+
+  it('register 依赖 this（0.1.5 官方为类方法，读 this.registrations）：方法调用形式，this 不丢', async () => {
+    // 复刻官方 0.1.5-rc.2 的真实形状：register 是 class 方法，内部读 this.registrations
+    // （官方 lib/index.js:283 `this.registrations.has(...)`；真机事故日志原文
+    //  `Cannot read properties of undefined (reading 'registrations')`）。
+    // 教训补课：此前假 ctx 的 register 是箭头函数（无 this 依赖），摘下来裸调也能过 →
+    // 单测全绿、真机才炸（settings 静默失效）——假服务必须贴官方 this 语义。
+    class FakeProvider {
+      registrations = new Map<string, unknown>()
+      register<T>(namespace: string, _schema: unknown, options: { base?: unknown }): SettingsScopeLike<T> {
+        if (!this.registrations) {
+          throw new TypeError("Cannot read properties of undefined (reading 'registrations')")
+        }
+        if (this.registrations.has(namespace)) throw new Error(`settings namespace "${namespace}" is already registered`)
+        this.registrations.set(namespace, options.base)
+        return { get: () => ({}) as T, update: async () => {}, watch: () => () => {} }
+      }
+    }
+    const provider = new FakeProvider()
+    const ctx = {
+      webServer: {} as never,
+      get: (name: string) => (name === 'settings' ? provider : undefined),
+    } as unknown as HostCtx
+    const logs: string[] = []
+    const config: LauncherConfig = { port: 3080 }
+    const { scope, cfg } = await registerLauncherSettings(ctx, config, (m) => logs.push(m))
+    // this 没丢 → 正常注册（修复前这里 scope=null + register skipped 日志）
+    expect(scope).not.toBeNull()
+    expect(cfg).toEqual({ port: 3080 })
+    expect(logs.some((m) => m.startsWith('[settings] registered ns=native-launcher (resolved:'))).toBe(true)
+  })
 })
 
 describe('registerLauncherSettings（新机制 0.1.7+ SettingsForms）', () => {
