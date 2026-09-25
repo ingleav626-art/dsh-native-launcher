@@ -17,11 +17,12 @@
  *   到默认值，用户会看到与实际配置不符的开关状态。
  * - 规则编辑保留上游的"草稿 + 保存"语义（未填 pattern 的规则不会落库）；开关类即时保存。
  */
-import { createElement, useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { createElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { firstRuleError, emptyRule, patchRule, removeRule } from '../shared/rules.ts'
 import type { RuleErrorKey } from '../shared/rules.ts'
-import type { NotificationRule, NotificationSettings } from '../shared/types.ts'
+import type { NotificationRule, NotificationSettings, NotificationSoundMode } from '../shared/types.ts'
 import { COPY } from './copy.ts'
+import { fileToSoundUpload } from './soundFile.ts'
 import type { NotificationClientFace } from './ports.ts'
 
 /** 完成状态类开关字段。 */
@@ -56,6 +57,16 @@ export const CARD_BOOLEAN_FIELDS: readonly string[] = [
   ...PENDING.map(entry => entry.field),
   'requireInteraction',
   'backgroundOnly',
+]
+
+/**
+ * 提示音选项表（值域必须与 host 侧 NotificationSoundMode / schema 一致——card.spec 盯住）。
+ * 导出同 CARD_BOOLEAN_FIELDS：防"schema 加了模式、下拉没有"的漂移。
+ */
+export const SOUND_OPTIONS: ReadonlyArray<{ readonly value: NotificationSoundMode; readonly label: string }> = [
+  { value: 'default', label: COPY['settings.sound.default'] },
+  { value: 'none', label: COPY['settings.sound.none'] },
+  { value: 'custom', label: COPY['settings.sound.custom'] },
 ]
 
 /** 卡片注入面：由模块 client 入口经官方槽位 `inject` 提供。 */
@@ -207,6 +218,41 @@ export function NotificationCard(props: NotificationCardProps): ReactElement {
   const [notice, setNotice] = useState<string | null>(null)
   /** 测试通知按钮状态（idle → sending → sent/failed）。 */
   const [testState, setTestState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
+  /** 音效上传状态（null = 空闲；'uploading' = 读取/上传中）。 */
+  const [soundState, setSoundState] = useState<'idle' | 'uploading'>('idle')
+  /** 隐藏的 file input（浏览器要求 click 必须来自用户手势，用 ref 触发）。 */
+  const soundInputRef = useRef<HTMLInputElement | null>(null)
+
+  /** 用户在文件选择器里选中文件 → 预检编码 → 上传 → host 落盘并更新设置 → 回读刷新。 */
+  const onSoundPicked = (file: File | undefined | null): void => {
+    if (!file) return
+    setSoundState('uploading')
+    setNotice(null)
+    fileToSoundUpload(file)
+      .then(payload => {
+        if (!payload.ok) {
+          // 预检失败（类型/大小/空文件）：可区分联合的 ok:false 分支必带用户可读原因
+          setNotice(payload.error)
+          setSoundState('idle')
+          return
+        }
+        return face.sound.upload({ name: payload.name, dataBase64: payload.dataBase64 })
+          .then(result => {
+            if (result.ok) {
+              face.logger.info(`[card] 音效已上传：${payload.name}`)
+              load() // host 已写入 soundPath/soundName，回读刷新当前文件展示
+            } else {
+              face.logger.warn(`[card] 音效上传被 host 拒绝：${result.error}`)
+              setNotice(result.error)
+            }
+          })
+      })
+      .catch(error => {
+        face.logger.warn(`[card] 音效上传失败：${String(error)}`)
+        setNotice(`音效上传失败：${String(error)}`)
+      })
+      .finally(() => { setSoundState('idle') })
+  }
 
   /** 发一条真实托盘通知验证整条链路（旧卡片的「发送测试通知」在新通道上的等价物）。 */
   const sendTest = (): void => {
@@ -344,6 +390,59 @@ export function NotificationCard(props: NotificationCardProps): ReactElement {
             ? createElement('span', { className: 'dsh_notification_error' }, COPY['settings.test.failed'])
             : null,
       ),
+    ),
+
+    // 提示音（v1.0.0 自定义音效）：模式下拉 + 自定义时的文件选择器。
+    // 放在测试通知后面：配完音效紧接着点「发送测试通知」就能试听。
+    cardEl(
+      COPY['settings.sound.title'],
+      COPY['settings.sound.subtitle'],
+      createElement(
+        'select',
+        {
+          className: 'dsh_notification_ruleSelect',
+          value: settings.sound,
+          'aria-label': COPY['settings.sound.title'],
+          onChange: (event) => { apply({ sound: event.target.value as NotificationSoundMode }) },
+        },
+        SOUND_OPTIONS.map(option => createElement('option', { key: option.value, value: option.value }, option.label)),
+      ),
+      settings.sound === 'custom'
+        ? createElement(
+            'div',
+            { className: 'dsh_notification_rulesFooter' },
+            // 浏览器安全模型拿不到文件绝对路径，故产品形态 = 选文件 → 上传副本：
+            // file input 隐藏（原生控件丑且不可定制），由按钮代为触发（click 必须来自用户手势）。
+            createElement('input', {
+              ref: soundInputRef,
+              type: 'file',
+              accept: '.wav,.mp3,.wma',
+              'aria-label': COPY['settings.sound.pick'],
+              style: { display: 'none' },
+              onChange: (event) => {
+                onSoundPicked(event.target.files?.[0])
+                event.target.value = '' // 清空后同一文件可重复选择（否则 change 不再触发）
+              },
+            }),
+            createElement(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh_notification_button dsh_notification_buttonGhost',
+                disabled: soundState === 'uploading',
+                onClick: () => { soundInputRef.current?.click() },
+              },
+              soundState === 'uploading' ? COPY['settings.sound.picking'] : COPY['settings.sound.pick'],
+            ),
+            createElement(
+              'span',
+              { className: 'dsh_notification_hint' },
+              settings.soundName === ''
+                ? COPY['settings.sound.nonePicked']
+                : `${COPY['settings.sound.current']}${settings.soundName}`,
+            ),
+          )
+        : null,
     ),
 
     cardEl(

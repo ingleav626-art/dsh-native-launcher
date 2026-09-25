@@ -6,7 +6,7 @@
  */
 import type { NotificationRule, NotificationSettings, SessionEventLike } from './types.ts'
 
-/** 出厂设置（逐字对齐上游 defaultNotificationSettings）。 */
+/** 出厂设置（逐字对齐上游 defaultNotificationSettings；sound/soundPath 为本项目扩展默认值）。 */
 export function defaultNotificationSettings(): NotificationSettings {
   return {
     enabled: true,
@@ -21,6 +21,9 @@ export function defaultNotificationSettings(): NotificationSettings {
     rules: [],
     requireInteraction: false,
     backgroundOnly: true,
+    sound: 'default',
+    soundPath: '',
+    soundName: '',
   }
 }
 

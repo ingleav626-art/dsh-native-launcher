@@ -12,7 +12,7 @@ import type { SettingsScopeFactory, SettingsScopeLike } from './ports.ts'
 /** 本模块的设置命名空间。 */
 export const SETTINGS_NAMESPACE = 'dsh-native-notification'
 
-/** 出厂设置（逐字对齐上游 `defaultNotificationSettings` 的默认值）。 */
+/** 出厂设置（对齐上游 `defaultNotificationSettings`；sound/soundPath 为本项目扩展，默认走系统音）。 */
 export function defaultNotificationSettings(): NotificationSettings {
   return {
     enabled: true,
@@ -27,6 +27,9 @@ export function defaultNotificationSettings(): NotificationSettings {
     rules: [],
     requireInteraction: false,
     backgroundOnly: true,
+    sound: 'default',
+    soundPath: '',
+    soundName: '',
   }
 }
 
@@ -46,6 +49,13 @@ const RULE_SCHEMA = z.object({
   caseSensitive: z.boolean().default(false).description('区分大小写'),
 })
 
+/** 提示音模式的 schema（与 NotificationSoundMode 值域一一对应）。 */
+const SOUND_MODE_SCHEMA = z.union([
+  z.const('default').description('系统默认提示音'),
+  z.const('none').description('静音（弹通知不响）'),
+  z.const('custom').description('自定义音效文件'),
+]).default('default').description('通知提示音')
+
 /**
  * 设置 schema：与 `defaultNotificationSettings` 的字段一一对应。
  * 对象数组（规则列表）已由沙箱探针实证可注册、可校验、可持久化。
@@ -63,6 +73,9 @@ export const NOTIFICATION_SETTINGS_SCHEMA = z.object({
   rules: z.array(RULE_SCHEMA).default([]).description('关键字规则：命中标题、回复正文或工具名'),
   requireInteraction: z.boolean().default(false).description('通知常驻直到手动处理（保留字段，对齐上游设置面）'),
   backgroundOnly: z.boolean().default(true).description('仅当 WebUI 不在前台时通知'),
+  sound: SOUND_MODE_SCHEMA,
+  soundPath: z.string().default('').description('音效副本路径（设置页选择音效文件后由启动器自动保存，无需手填）'),
+  soundName: z.string().default('').description('音效文件的原始文件名（设置卡片展示用）'),
 })
 
 /**

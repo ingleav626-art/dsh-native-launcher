@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultNotificationSettings } from '../host/settings.ts'
 import type { NotificationSettings } from '../shared/types.ts'
-import { CARD_BOOLEAN_FIELDS, notifyPatch } from './card.ts'
+import { CARD_BOOLEAN_FIELDS, SOUND_OPTIONS, notifyPatch } from './card.ts'
 
 describe('卡片开关 ↔ 设置 schema', () => {
   it('schema 的每个布尔字段都有对应开关', () => {
@@ -24,6 +24,17 @@ describe('卡片开关 ↔ 设置 schema', () => {
     const defaults = defaultNotificationSettings() as unknown as Record<string, unknown>
     for (const field of CARD_BOOLEAN_FIELDS) {
       expect(typeof defaults[field], `字段 ${field} 不在 schema 里（开关写不进去）`).toBe('boolean')
+    }
+  })
+})
+
+describe('提示音下拉 ↔ 设置 schema', () => {
+  it('下拉选项值域与 schema 的 sound 字段一致（schema 加了模式、下拉没有 = 选不到的摆设）', () => {
+    const schemaValue = defaultNotificationSettings().sound
+    expect(SOUND_OPTIONS.map(option => option.value)).toContain(schemaValue)
+    // 卡片 onChange 的值必须能写回 schema（下拉不产生 schema 外的值）
+    for (const option of SOUND_OPTIONS) {
+      expect(['default', 'none', 'custom']).toContain(option.value)
     }
   })
 })

@@ -8,7 +8,7 @@
 import { manifest } from '../manifest.ts'
 import type { NotificationSettings } from '../shared/types.ts'
 import { notificationProjection } from './fold.ts'
-import { createNotifier, type Notifier } from './notifier.ts'
+import { createNotifier, resolveTraySound, type Notifier } from './notifier.ts'
 import { createPendingChannel, isPendingReport, type PendingChannel } from './pending.ts'
 import type {
   LoggerPort,
@@ -193,12 +193,16 @@ export function createNotificationModule(deps: NotificationModuleDeps): Notifica
         // 只靠 Date.now() 不够——同一毫秒内连点两次会得到相同 tag（E2E 抓到的真实缺陷），
         // 故再挂一个单调序号，保证"连点多少次都能看到"。
         testSequence += 1
+        const current = scope?.get()
+        // 测试通知带当前提示音设置：用户配了自定义音效，点「发送测试通知」就该听到那个音
+        const traySound = current === undefined ? undefined : resolveTraySound(current)
         deps.notify.notify({
           title: '任务通知测试',
           body: '看到这条托盘通知，说明「模块 → 投递端 → 托盘 → 系统」整条链路已打通。',
           tag: `dsh-notification-test-${Date.now()}-${testSequence}`,
           // 测试通知也遵守"需要手动关闭"设置：用户开了它就该在测试里看到常驻效果
-          persistent: scope?.get().requireInteraction === true,
+          persistent: current?.requireInteraction === true,
+          ...(traySound === undefined ? {} : { sound: traySound }),
         })
         deps.logger.info('[notification] 测试通知已交投递端（来源：设置卡片「发送测试通知」）')
         return true

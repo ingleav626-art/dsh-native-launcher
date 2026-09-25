@@ -30,7 +30,7 @@ export interface NotificationRule {
   readonly caseSensitive: boolean
 }
 
-/** 通知偏好设置（字段全集对齐上游 `defaultNotificationSettings`）。 */
+/** 通知偏好设置（字段全集对齐上游 `defaultNotificationSettings`；sound/soundPath 为本项目扩展）。 */
 export interface NotificationSettings {
   /** 总开关；false 全部禁用。 */
   readonly enabled: boolean
@@ -51,7 +51,22 @@ export interface NotificationSettings {
   readonly requireInteraction: boolean
   /** 仅在目标不在前台时通知（托盘通道下由 presence 判定）。 */
   readonly backgroundOnly: boolean
+  /**
+   * 提示音（本项目扩展，上游无此字段）：default=系统默认提示音；none=静音；
+   * custom=播放 soundPath 指定的音频文件（托盘通道下由托盘脚本执行）。
+   */
+  readonly sound: NotificationSoundMode
+  /**
+   * 音效副本路径（sound=custom 时生效；由设置页选择文件后 host 落盘的副本，
+   * 浏览器拿不到绝对路径故走上传副本机制——见 io/soundFile.ts）。
+   */
+  readonly soundPath: string
+  /** 音效副本的**原始文件名**（纯展示：设置卡片显示"当前音效"用，不参与任何通知决策）。 */
+  readonly soundName: string
 }
+
+/** 提示音模式（设置面值域）。 */
+export type NotificationSoundMode = 'default' | 'none' | 'custom'
 
 /**
  * 投影 wire 载荷：某会话「最近一次已完成 turn」的有界摘要。
@@ -90,6 +105,14 @@ export interface PendingNotificationPlan {
   readonly tag: string
 }
 
+/**
+ * 通知音效指令（托盘的执行契约，与设置面值域解耦）：
+ * - 'none'：Toast 静音（用户要求不响）；
+ * - { path }：Toast 静音 + 托盘播放该音频文件；
+ * - 字段缺省 = 系统默认音（与旧版托盘脚本/旧载荷完全兼容）。
+ */
+export type TraySound = 'none' | { readonly path: string }
+
 /** 投递给托盘的载荷（启动器投递端的入参契约）。 */
 export interface TrayNotification {
   readonly title: string
@@ -101,6 +124,8 @@ export interface TrayNotification {
    * 通知停在屏幕上不自动消失。缺省 false = 系统默认时长。
    */
   readonly persistent?: boolean
+  /** 音效指令；缺省 = 系统默认音（见 TraySound 注释）。 */
+  readonly sound?: TraySound
 }
 
 /**

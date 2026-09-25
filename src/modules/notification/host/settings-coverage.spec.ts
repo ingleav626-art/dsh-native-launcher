@@ -20,9 +20,14 @@ const DECISION_FILES = ['filter.ts', 'planner.ts', 'watch.ts', 'pending.ts', 'pr
  * 每条都必须是**用户已知情**的裁决结果，且卡片 UI 要与之一致（不能给用户一个点了没反应的开关）。
  */
 const PLACEBO_ALLOWLIST: readonly string[] = [
-  // 当前为空。`requireInteraction` 曾在此豁免（守卫抓到它没被任何决策消费），
+  // `requireInteraction` 曾在此豁免（守卫抓到它没被任何决策消费），
   // 2026-09-11 用户拍板实现：`notifier.ts` 读取它并转成托盘的 `persistent`（scenario="reminder"），
   // 故豁免撤销——豁免必须是"用户已知情的裁决"，不是"懒得实现"。
+  //
+  // `soundName`（2026-09-25 音效功能引入时豁免）：**纯展示字段**——设置卡片读它显示
+  // "当前音效文件名"（src/modules/notification/client/card.ts），不参与任何通知决策；
+  // 决策侧消费的是它的伴生字段 `soundPath`（notifier.resolveTraySound → 托盘音效指令）。
+  'soundName',
 ]
 
 describe('设置项覆盖（防"开关是摆设"）', () => {

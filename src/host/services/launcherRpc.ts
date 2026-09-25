@@ -11,6 +11,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { LauncherConfig, LogFn, SettingsScopeLike } from '../types.ts'
 import type { RpcHandler } from '../io/rpcBridge.ts';
 import { logsDirOf } from '../core/paths.ts';
+import { saveNotifySound } from '../io/soundFile.ts';
 
 /** 通知模块句柄（4.5 装配后由组装根提供；RPC 端点经它转发）。 */
 export interface NotificationModuleHandle {
@@ -590,6 +591,29 @@ export function setupLauncherRpc(deps: LauncherRpcDeps): void {
             return notificationApplied
               ? { ok: true }
               : { ok: false, error: { code: 'notification', message: 'update rejected (invalid rules or settings unavailable)', details: {} } };
+          }
+          case 'notification.sound-upload': {
+            // 音效文件上传（设置卡片「选择音效文件」）：浏览器拿不到绝对路径（托盘播放需要），
+            // 故 client 读文件内容传 base64，此处校验落盘为启动器目录下的副本并更新 soundPath/soundName。
+            // 校验（扩展名白名单 / base64 严格形态 / 2MB 上限）全部收口在 io/soundFile.ts（唯一写者）。
+            const mod = deps.getNotificationModule();
+            if (!mod) return { ok: false, error: { code: 'notification', message: 'notification module not loaded', details: {} } };
+            const upload = (_payload as { name?: unknown; dataBase64?: unknown } | null) ?? {};
+            const saved = saveNotifySound(
+              launcherDir,
+              typeof upload.name === 'string' ? upload.name : '',
+              typeof upload.dataBase64 === 'string' ? upload.dataBase64 : '',
+            );
+            if (!saved.ok) {
+              logWarn(`[sound] upload rejected: ${saved.error}`);
+              return { ok: false, error: { code: 'sound', message: saved.error, details: {} } };
+            }
+            const soundApplied = await mod.updateSettings({ soundPath: saved.path, soundName: typeof upload.name === 'string' ? upload.name : '' });
+            if (!soundApplied) {
+              return { ok: false, error: { code: 'sound', message: 'file saved but settings update failed (module unavailable?)', details: {} } };
+            }
+            logMsg(`[sound] uploaded: ${saved.path} (${saved.bytes} bytes)`);
+            return { ok: true, value: { path: saved.path, bytes: saved.bytes } };
           }
           default:
             return { ok: false, error: { code: 'unknown', message: `unknown endpoint: ${endpoint}`, details: {} } };

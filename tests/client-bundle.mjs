@@ -47,6 +47,9 @@ const DEFAULT_SETTINGS = {
   rules: [],
   requireInteraction: false,
   backgroundOnly: true,
+  sound: 'default',
+  soundPath: '',
+  soundName: '',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

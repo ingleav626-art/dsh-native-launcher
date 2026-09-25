@@ -29,7 +29,7 @@ declare module 'react' {
 
   /**
    * `createElement` 的 props 袋：已知键给出精确类型（事件回调因此可被上下文推断，
-   * 代码里无需给 `event` 加注解），其余键（`aria-*` / `viewBox` / `htmlFor` 等）由索引签名放行。
+   * 代码里无需给 `event` 加注解），其余键（`aria-*` / `viewBox` / `htmlFor` / `ref` 等）由索引签名放行。
    */
   export interface ElementProps {
     readonly key?: string | number
@@ -46,8 +46,11 @@ declare module 'react' {
     readonly min?: number
     readonly max?: number
     readonly title?: string
+    readonly accept?: string
     readonly onChange?: (event: {
-      readonly target: { readonly value: string; readonly checked: boolean }
+      // value 可写：file input 选完同一路径再选不会再触发 change，调用方需清空 `target.value`
+      // （React 官方类型同样把 target 当 DOM 节点从宽处理）；files 仅 file input 消费。
+      readonly target: { value: string; checked: boolean; readonly files?: FileList | null }
     }) => void
     readonly onClick?: (event: { readonly target: unknown }) => void
     readonly [extra: string]: unknown
@@ -80,4 +83,10 @@ declare module 'react' {
   export function useState<T>(initial: T | (() => T)): [T, SetState<T>]
 
   export function useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void
+
+  /**
+   * 可变引用（只消费「隐藏 file input 的 ref 触发 click」这一个用法；
+   * 官方类型里的 RefObject 家族在垫片口径下统一成 `{ current }`）。
+   */
+  export function useRef<T>(initial: T): { current: T }
 }

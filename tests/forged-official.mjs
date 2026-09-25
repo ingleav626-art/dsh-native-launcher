@@ -324,6 +324,17 @@ await step('步骤 -1b｜生成脚本语法守卫：writeOpenScript/writeTrayScr
     assert.ok(/Get-ToastLaunchTarget[\s\S]*launcher\.vbs/.test(tray), 'Get-ToastLaunchTarget 必须返回 launcher.vbs 路径（双击快捷方式同链路）')
     assert.ok(!tray.includes('http://127.0.0.1:') || !/launch.*http/.test(tray.split('function Get-ToastLaunchTarget')[1] ?? ''), 'Get-ToastLaunchTarget 不得返回 URL（双开）')
     assert.ok(!tray.includes('shell:AppsFolder\\') || !/return.*AppsFolder/.test(tray.split('function Get-ToastLaunchTarget')[1] ?? ''), 'Get-ToastLaunchTarget 不得返回 AppsFolder 项（--app-id 已运行弹新窗口=双开）')
+    // 音效链路结构守卫（v23）：载荷 sound 指令（none/自定义文件）→ 托盘静音联动 + 播放。
+    // 与 launch 段同类："语法对、结构错"只有断言结构才抓得住——尤其静音联动缺失 = 双音，
+    // 定义落在消息循环之后 = 函数永远不会被定义（PS 顺序执行，无提升）。
+    assert.ok(tray.includes('function Play-NotifySound'), 'tray.ps1 缺 Play-NotifySound 定义（音效链路残缺）')
+    const mainLoopAt = tray.indexOf('MAIN-LOOP-START')
+    const playDefAt = tray.indexOf('function Play-NotifySound')
+    assert.ok(mainLoopAt !== -1 && playDefAt !== -1 && playDefAt < mainLoopAt, 'Play-NotifySound 必须定义在 MAIN-LOOP-START 之前（PS 顺序执行：Run() 之后的定义永不生效）')
+    assert.ok(tray.includes('[bool]$silent'), 'Show-TrayToast 缺 silent 参数（自定义/静音音效必须联动 Toast 静音，否则系统音+自定义音双音）')
+    assert.ok(/Show-TrayToast\s+\$t\s+\$b\s+\$p\s+\(/.test(tray), 'tick 调 Show-TrayToast 未传第 4 参 silent（联动断线）')
+    assert.ok(tray.includes('System.Media.SoundPlayer'), '音效播放缺 wav 路径（SoundPlayer）')
+    assert.ok(tray.includes('System.Windows.Media.MediaPlayer'), '音效播放缺压缩格式路径（WPF MediaPlayer）')
     // 全文引用完整性守卫（v18 教训的终局闸）：臆造函数不是语法错误——Parser、文本断言
     // 全放行，只有托盘运行时才 fatal（三连死）。做法 = 提取全部 function 定义块（大括号
     // 平衡，不执行 boot 副作用段——mutex 检查的 exit 0 会把校验脚本静默终止）拼成定义

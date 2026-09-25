@@ -73,6 +73,21 @@ export interface NotificationTestPort {
   send(): Promise<boolean>
 }
 
+/** 音效文件上传结果（host 侧校验/落盘的可区分结果）。 */
+export type SoundUploadResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: string }
+
+/**
+ * 音效文件上传通道（设置卡片「选择音效文件」用）。
+ * 浏览器拿不到本机绝对路径（托盘播放需要），故上传文件内容由 host 落盘为
+ * 启动器目录下的副本（io/soundFile.ts 唯一写者），并更新 soundPath/soundName 设置。
+ */
+export interface SoundUploadPort {
+  /** 上传音效文件；host 校验（扩展名/大小/base64 形态）失败时返回 ok:false。 */
+  upload(file: { readonly name: string; readonly dataBase64: string }): Promise<SoundUploadResult>
+}
+
 /** 日志端口（启动器统一 client logger，带每键去重）。 */
 export interface ClientLoggerPort {
   info(message: string): void
@@ -86,5 +101,6 @@ export interface NotificationClientFace {
   readonly pendingFeed: PendingFeedPort
   readonly pendingReport: PendingReportPort
   readonly test: NotificationTestPort
+  readonly sound: SoundUploadPort
   readonly logger: ClientLoggerPort
 }

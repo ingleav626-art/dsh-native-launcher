@@ -44,15 +44,30 @@ export function createNotifyPort(launcherDir: string, log: LogFn, isSuppressed?:
         log(`[notify] suppressed by config (trayNotify=false): ${notification?.tag ?? ''}`);
         return;
       }
-      const payload = {
+      const payload: {
+        title: string
+        body: string
+        ts: number
+        persistent: boolean
+        sound?: 'none' | { path: string }
+      } = {
         title: String(notification?.title ?? '任务完成').slice(0, 64),
         body: String(notification?.body ?? '').slice(0, 256),
         ts: Date.now(),
         // 常驻直到手动关闭（上游 requireInteraction 语义）：托盘据此用 scenario="reminder" 呈现
         persistent: notification?.persistent === true,
       };
+      // 音效指令透传（'none' | { path }；缺省 = 系统默认音，旧托盘脚本读不到该键行为不变）。
+      // 形状由模块侧 resolveTraySound 保证，这里只做无害过滤（渲染进程/上游形状不可信）。
+      const rawSound = (notification as { sound?: unknown } | null | undefined)?.sound;
+      if (rawSound === 'none') {
+        payload.sound = 'none';
+      } else if (rawSound !== null && typeof rawSound === 'object' && typeof (rawSound as { path?: unknown }).path === 'string' && ((rawSound as { path: string }).path).trim() !== '') {
+        payload.sound = { path: (rawSound as { path: string }).path };
+      }
+      const soundNote = payload.sound === undefined ? '' : (payload.sound === 'none' ? ' [sound=none]' : ` [sound=${payload.sound.path}]`);
       writeFileSync(file, JSON.stringify(payload));
-      log(`[notify] queued: ${payload.title} (${notification?.tag ?? ''})${payload.persistent ? ' [persistent]' : ''}`);
+      log(`[notify] queued: ${payload.title} (${notification?.tag ?? ''})${payload.persistent ? ' [persistent]' : ''}${soundNote}`);
     },
   };
 }

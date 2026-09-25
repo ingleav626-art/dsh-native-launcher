@@ -82,7 +82,7 @@ function armExitCleanup(dir: string) {
     const target = pendingExitCleanup; pendingExitCleanup = null;
     if (!target) return;
     try {
-      for (const name of ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico', 'tray-pid.txt', 'tray-version.txt', 'tray-state.json']) {
+      for (const name of ['launch.cmd', 'launcher.vbs', 'tray.ps1', 'open-webui.ps1', 'dsh-webui.ico', 'tray-pid.txt', 'tray-version.txt', 'tray-state.json', 'notify-sound.wav', 'notify-sound.mp3', 'notify-sound.wma']) {
         const p = join(target, name);
         if (existsSync(p)) { try { unlinkSync(p); } catch { } }
       }

@@ -4,7 +4,7 @@
  *
  * 本文件是全项目唯一触碰 `ctx.sessions` / `ctx.uiSession` / RPC 端点形状的 client 侧位置。
  */
-import type { NotificationClientFace, PendingFeedPort, PendingObservation } from '../modules/notification/client/ports.ts'
+import type { NotificationClientFace, PendingFeedPort, PendingObservation, SoundUploadResult } from '../modules/notification/client/ports.ts'
 import type { NotificationSettings, PendingKind } from '../modules/notification/shared/types.ts'
 import { clientInfo, clientWarn } from './log.ts'
 import { registerSettingsSection } from './slots.ts'
@@ -141,6 +141,30 @@ function createPendingFeed(ctx: ClientContextLike): PendingFeedPort {
 }
 
 /**
+ * 解析 `notification.sound-upload` 的 RPC 响应（纯函数，单测盯防）。
+ *
+ * 响应壳与其他端点一致：成功 `{ ok: true, value: { path, bytes } }`，失败 `{ ok: false, error: { code, message, details } }`。
+ * 真机日志实证（2026-09-25）：此处曾误在顶层找 path，host 明明成功（uploaded 日志在案）
+ * 却被判为拒绝——连锁跳过 load() 回读，设置卡片不显示已选文件名。
+ */
+export function parseSoundUploadResponse(result: unknown): SoundUploadResult {
+  // 显式拒 null：typeof null === 'object'（JS 历史包袱），不拦会走到 record 分支拿兜底文案
+  if (result === undefined || result === null || typeof result !== 'object') {
+    return { ok: false, error: 'host 返回了空响应' }
+  }
+  const record = result as Record<string, unknown>
+  const value = asRecord(record.value)
+  if (record.ok !== true || typeof value?.path !== 'string') {
+    const errObj = asRecord(record.error)
+    const reason = typeof errObj?.message === 'string' && errObj.message !== ''
+      ? errObj.message
+      : 'host 拒绝了这次上传'
+    return { ok: false, error: reason }
+  }
+  return { ok: true, path: value.path }
+}
+
+/**
  * 构造通知模块 client 半区的注入面。
  * @param ctx - 官方 client ctx。
  */
@@ -175,6 +199,15 @@ export function createNotificationFace(ctx: ClientContextLike): NotificationClie
         if (rpc === undefined) return false
         const result = await rpc.call(RPC_PATH, 'notification.test', {})
         return result !== undefined && result.ok === true
+      },
+    },
+
+    sound: {
+      upload: async file => {
+        if (rpc === undefined) {
+          return { ok: false, error: 'client 未连接到 host（RPC 不可用）' }
+        }
+        return parseSoundUploadResponse(await rpc.call(RPC_PATH, 'notification.sound-upload', file))
       },
     },
 

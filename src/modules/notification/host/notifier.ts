@@ -8,8 +8,25 @@
  * 本文件不碰任何存储：`tray-notify.json` 的唯一写者是启动器投递端（端口背后）。
  */
 import { bodyText, pendingTitleFor, titleFor } from '../shared/labels.ts'
-import type { NotificationPlan, NotificationSettings, PendingNotificationPlan, TrayNotification } from '../shared/types.ts'
+import type { NotificationPlan, NotificationSettings, NotificationSoundMode, PendingNotificationPlan, TrayNotification, TraySound } from '../shared/types.ts'
 import type { LoggerPort, NotifyPort } from './ports.ts'
+
+/**
+ * 设置面的提示音 → 托盘音效指令（决策链消费点之一，settings-coverage 守卫盯着它）。
+ *
+ * 返回 undefined = 载荷不带 sound 字段 = 托盘按系统默认音呈现（旧载荷/旧托盘完全兼容）。
+ * 自定义模式但路径为空白 → 按系统默认处理（设置面口径：路径是 custom 模式的生效条件）。
+ * 读设置失败由调用方兜底（本函数不 try/catch，保持纯函数）。
+ */
+export function resolveTraySound(settings: NotificationSettings): TraySound | undefined {
+  const mode: NotificationSoundMode = settings.sound
+  if (mode === 'none') return 'none'
+  if (mode === 'custom') {
+    const path = typeof settings.soundPath === 'string' ? settings.soundPath.trim() : ''
+    if (path !== '') return { path }
+  }
+  return undefined
+}
 
 /** 投递编排的依赖（端口注入，测试可直接换 fake）。 */
 export interface NotifierDeps {
@@ -74,9 +91,21 @@ export function createNotifier(deps: NotifierDeps, options: NotifierOptions = {}
     }
   }
 
-  /** 组装载荷：persistent 仅在开启时出现。 */
-  const payload = (title: string, body: string, tag: string): TrayNotification =>
-    persistent() ? { title, body, tag, persistent: true } : { title, body, tag }
+  /** 提示音指令：读设置失败按系统默认音处理（与 persistent 同口径，投递不因设置异常挂掉）。 */
+  const sound = (): TraySound | undefined => {
+    try {
+      return resolveTraySound(deps.settings())
+    } catch {
+      return undefined
+    }
+  }
+
+  /** 组装载荷：persistent / sound 仅在非默认时出现（默认载荷与上游逐字一致）。 */
+  const payload = (title: string, body: string, tag: string): TrayNotification => {
+    const base: TrayNotification = persistent() ? { title, body, tag, persistent: true } : { title, body, tag }
+    const traySound = sound()
+    return traySound === undefined ? base : { ...base, sound: traySound }
+  }
 
   const send = (notification: TrayNotification): void => {
     try {
